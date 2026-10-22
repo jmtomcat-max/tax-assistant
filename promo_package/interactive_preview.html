@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TAX ASSISTANT — 제품 시연 홍보영상 V3 FINAL (72초)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cj-blue: #003876;
+      --cj-red: #E61E2B;
+      --cj-sky: #38BDF8;
+      --dark-bg: #070B14;
+      --panel-bg: #0D1424;
+      --card-border: #1E293B;
+      --text-main: #F8FAFC;
+      --text-sub: #94A3B8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Pretendard', -apple-system, sans-serif; }
+    body {
+      background: #040711;
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+      padding: 16px;
+    }
+
+    /* 상단 컨트롤 바 */
+    .top-bar {
+      width: 100%;
+      max-width: 1140px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding: 0 4px;
+    }
+    .project-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      background: rgba(0, 56, 118, 0.55);
+      border: 1px solid rgba(0, 122, 255, 0.55);
+      color: #60A5FA;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 4px 10px;
+      border-radius: 6px;
+      letter-spacing: 0.5px;
+    }
+    .demo-tag {
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: #38BDF8;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .demo-data-tag {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: #FBBF24;
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+    .project-title {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #E2E8F0;
+    }
+    .time-display {
+      font-family: 'Courier New', monospace;
+      font-size: 17px;
+      font-weight: 700;
+      color: #38BDF8;
+      background: #0B1120;
+      padding: 4px 14px;
+      border-radius: 6px;
+      border: 1px solid #1E293B;
+    }
+
+    /* 비디오 뷰포트 (16:9 Cinema Frame) */
+    .viewport {
+      width: 100%;
+      max-width: 1140px;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border-radius: 14px;
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }
+
+    /* Scene 레이어 공통 */
+    .scene-layer {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+      transform: scale(0.98);
+      background: radial-gradient(circle at center, #0B132B 0%, #03060E 100%);
+    }
+    .scene-layer.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: scale(1);
+    }
+
+    /* 자막 바 */
+    .subtitle-bar {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(7, 11, 22, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 9px 24px;
+      border-radius: 30px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #FFFFFF;
+      text-align: center;
+      max-width: 82%;
+      z-index: 100;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+      transition: all 0.25s ease;
+      white-space: pre-line;
+    }
+
+    /* ---------------- SCENE 1 (Problem) ---------------- */
+    .scene1-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .desktop-grid {
+      position: absolute;
+      inset: 32px 50px 70px 50px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 16px;
+    }
+    .window-card {
+      background: #0B1220;
+      border: 1px solid #1E293B;
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+      position: relative;
+    }
+    .win-header {
+      background: #070D18;
+      border-bottom: 1px solid #1E293B;
+      padding: 7px 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #94A3B8;
+    }
+    .win-dots {
+      display: flex;
+      gap: 4px;
+      margin-right: 6px;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; }
+    .dot.r { background: #EF4444; }
+    .dot.y { background: #F59E0B; }
+    .dot.g { background: #10B981; }
+    .win-body {
+      padding: 12px;
+      font-size: 11px;
+      color: #64748B;
+      line-height: 1.6;
+      flex: 1;
+      overflow: hidden;
+    }
+    .win-body b { color: #CBD5E1; }
+    .problem-overlay {
+      position: absolute;
+      z-index: 10;
+      text-align: center;
+      background: rgba(3, 7, 18, 0.88);
+      backdrop-filter: blur(12px);
+      padding: 24px 44px;
+      border-radius: 16px;
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      box-shadow: 0 0 50px rgba(239, 68, 68, 0.15);
+    }
+    .problem-overlay h2 {
+      font-size: 26px;
+      font-weight: 800;
+      color: #FFF;
+      line-height: 1.4;
+      margin-bottom: 8px;
+    }
+    .problem-overlay p {
+      font-size: 14px;
+      color: #94A3B8;
+    }
+
+    /* ---------------- SCENE 2 (Solution) ---------------- */
+    .scene2-hero {
+      text-align: center;
+      max-width: 820px;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(0, 56, 118, 0.6);
+      border: 1px solid #007AFF;
+      color: #60A5FA;
+      font-size: 12.5px;
+      font-weight: 800;
+      padding: 6px 16px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+      letter-spacing: 1px;
+    }
+    .hero-title {
+      font-size: 58px;
+      font-weight: 900;
+      letter-spacing: 3px;
+      color: #FFFFFF;
+      margin-bottom: 16px;
+      text-shadow: 0 10px 40px rgba(0, 122, 255, 0.5);
+    }
+    .hero-slogan {
+      font-size: 23px;
+      font-weight: 700;
+      color: #E2E8F0;
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }
+    .hero-chips {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+    }
+    .chip {
+      background: #0B1222;
+      border: 1px solid #1E293B;
+      padding: 7px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #94A3B8;
+    }
+
+    /* ---------------- SCENE 3 (Product Demo) ---------------- */
+    .demo-window {
+      width: 92%;
+      height: 84%;
+      background: #0B1120;
+      border: 1px solid #1E293B;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+    }
+    .demo-top-bar {
+      background: #070D18;
+      border-bottom: 1px solid #1E293B;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .demo-app-body {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      position: relative;
+    }
+    .demo-sidebar {
+      width: 175px;
+      background: #070C16;
+      border-right: 1px solid #1E293B;
+      padding: 12px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .demo-nav-item {
+      padding: 7px 10px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #64748B;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .demo-nav-item.active {
+      background: rgba(0, 56, 118, 0.6);
+      color: #38BDF8;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+    }
+    .demo-nav-item.highlight-click {
+      background: rgba(56, 189, 248, 0.35);
+      border-color: #38BDF8;
+      color: #FFF;
+      box-shadow: 0 0 15px rgba(56, 189, 248, 0.6);
+    }
+    .demo-main {
+      flex: 1;
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #0B1120;
+      overflow-y: hidden;
+      position: relative;
+    }
+
+    /* 가상 마우스 커서 */
+    .virtual-cursor {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      pointer-events: none;
+      z-index: 999;
+      transition: top 0.45s cubic-bezier(0.25, 1, 0.5, 1), left 0.45s cubic-bezier(0.25, 1, 0.5, 1), transform 0.15s ease;
+      filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.9));
+    }
+    .virtual-cursor svg {
+      width: 100%;
+      height: 100%;
+      fill: #FFFFFF;
+      stroke: #000;
+      stroke-width: 1.5;
+    }
+    .virtual-cursor.clicking {
+      transform: scale(0.85);
+    }
+
+    /* 입력창 */
+    .real-search-input-box {
+      background: #070D18;
+      border: 1px solid #1E293B;
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+    }
+    .input-text {
+      flex: 1;
+      font-size: 13.5px;
+      color: #FFFFFF;
+      font-weight: 600;
+      min-height: 20px;
+      display: flex;
+      align-items: center;
+    }
+    .typing-caret {
+      display: inline-block;
+      width: 2px;
+      height: 15px;
+      background: #38BDF8;
+      margin-left: 2px;
+      animation: blink 0.7s infinite;
+    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+    /* 리포트 카드 */
+    .real-report-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .report-card {
+      background: #070C16;
+      border: 1px solid #1E293B;
+      border-radius: 8px;
+      padding: 11px 13px;
+      font-size: 11px;
+      line-height: 1.55;
+    }
+    .rc-header {
+      font-size: 11.5px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .rc-tax { border-left: 3px solid #EF4444; }
+    .rc-defense { border-left: 3px solid #38BDF8; }
+
+    .real-checklist-box {
+      background: #070C16;
+      border: 1px solid #1E293B;
+      border-radius: 8px;
+      padding: 9px 13px;
+      font-size: 11px;
+    }
+
+    .precedent-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(0, 122, 255, 0.18);
+      border: 1px solid #007AFF;
+      color: #60A5FA;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .precedent-badge.clicked {
+      background: #007AFF;
+      color: #FFF;
+      box-shadow: 0 0 15px rgba(0, 122, 255, 0.8);
+    }
+
+    /* 판례 전문 모달 */
+    .precedent-modal {
+      position: absolute;
+      top: 52%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.95);
+      width: 78%;
+      background: #080E1C;
+      border: 1px solid #007AFF;
+      border-radius: 10px;
+      padding: 16px 20px;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.95), 0 0 35px rgba(0, 122, 255, 0.35);
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .precedent-modal.active {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+      pointer-events: auto;
+    }
+
+    /* ---------------- SCENE 4 (Review History) ---------------- */
+    .history-app-frame {
+      width: 92%;
+      height: 84%;
+      background: #0B1120;
+      border: 1px solid #1E293B;
+      border-radius: 12px;
+      display: flex;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+    }
+    .app-sidebar {
+      width: 175px;
+      background: #070C16;
+      border-right: 1px solid #1E293B;
+      padding: 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .side-brand {
+      font-size: 12px;
+      font-weight: 800;
+      color: #FFF;
+      padding: 0 8px 12px 8px;
+      border-bottom: 1px solid #1E293B;
+      margin-bottom: 8px;
+    }
+    .side-item {
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #64748B;
+    }
+    .side-item.active {
+      background: rgba(0, 56, 118, 0.6);
+      color: #38BDF8;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+    }
+    .history-main-area {
+      flex: 1;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #0B1120;
+      overflow-y: hidden;
+    }
+    .history-kpi-bar {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    .hkpi-card {
+      background: #070C16;
+      border: 1px solid #1E293B;
+      border-radius: 8px;
+      padding: 9px 12px;
+    }
+    .hkpi-val { font-size: 16px; font-weight: 800; color: #FFF; }
+    .hkpi-lbl { font-size: 10px; color: #64748B; margin-top: 2px; }
+    .history-real-card {
+      background: #070C16;
+      border: 1px solid #1E293B;
+      border-radius: 8px;
+      padding: 11px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .history-real-card.latest {
+      border: 1px solid #38BDF8;
+      background: rgba(56, 189, 248, 0.08);
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+    }
+
+    /* ---------------- SCENE 5 (Vault) ---------------- */
+    .vault-layout {
+      width: 92%;
+      height: 84%;
+      background: #0B1120;
+      border: 1px solid #1E293B;
+      border-radius: 12px;
+      display: flex;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+    }
+    .vault-content {
+      flex: 1;
+      padding: 18px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .diff-banner {
+      background: #070D18;
+      border: 1px solid #1E293B;
+      border-radius: 8px;
+      padding: 9px 14px;
+      display: flex;
+      justify-content: space-around;
+      font-size: 11.5px;
+    }
+    .diff-item { display: flex; align-items: center; gap: 8px; }
+
+    /* ---------------- SCENE 6 (Knowledge DB) ---------------- */
+    .knowledge-hub {
+      position: relative;
+      width: 820px;
+      height: 410px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .center-core {
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #003876 0%, #070D1C 80%);
+      border: 2px solid #38BDF8;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      z-index: 10;
+      box-shadow: 0 0 50px rgba(56, 189, 248, 0.4);
+    }
+    .vision-sub-badge {
+      display: inline-block;
+      background: rgba(56, 189, 248, 0.2);
+      border: 1px solid rgba(56, 189, 248, 0.5);
+      color: #38BDF8;
+      font-size: 9.5px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 10px;
+      margin-bottom: 6px;
+      letter-spacing: 0.5px;
+    }
+    .flow-node {
+      position: absolute;
+      background: #0B1222;
+      border: 1px solid #334155;
+      padding: 7px 14px;
+      border-radius: 20px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #94A3B8;
+    }
+    .fn1 { top: 25px; left: 130px; }
+    .fn2 { top: 25px; right: 130px; }
+    .fn3 { bottom: 35px; left: 110px; }
+    .fn4 { bottom: 35px; right: 110px; }
+    .fn5 { top: 50%; left: 30px; transform: translateY(-50%); }
+    .fn6 { top: 50%; right: 30px; transform: translateY(-50%); }
+
+    /* ---------------- SCENE 7 (Ending) ---------------- */
+    .ending-hero { text-align: center; }
+    .ending-title {
+      font-size: 60px;
+      font-weight: 900;
+      letter-spacing: 4px;
+      color: #FFFFFF;
+      margin-bottom: 16px;
+      text-shadow: 0 10px 40px rgba(0, 122, 255, 0.6);
+    }
+    .ending-copy {
+      font-size: 21px;
+      font-weight: 700;
+      color: #94A3B8;
+      line-height: 1.5;
+      margin-bottom: 22px;
+    }
+    .ending-sub {
+      font-size: 12.5px;
+      color: #38BDF8;
+      letter-spacing: 2px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    /* 하단 컨트롤러 */
+    .controls {
+      width: 100%;
+      max-width: 1140px;
+      background: #0B1120;
+      border: 1px solid #1E293B;
+      border-radius: 12px;
+      margin-top: 12px;
+      padding: 12px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .progress-container {
+      width: 100%;
+      height: 6px;
+      background: #1E293B;
+      border-radius: 3px;
+      cursor: pointer;
+      position: relative;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #003876, #007AFF, #38BDF8);
+      border-radius: 3px;
+    }
+    .scene-markers { position: absolute; inset: 0; }
+    .marker {
+      position: absolute;
+      top: -3px;
+      width: 2px;
+      height: 12px;
+      background: rgba(255, 255, 255, 0.3);
+    }
+    .marker-label {
+      position: absolute;
+      top: -18px;
+      transform: translateX(-50%);
+      font-size: 10px;
+      color: #64748B;
+      white-space: nowrap;
+    }
+    .btn-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .play-btn {
+      background: #003876;
+      border: 1px solid #0056B3;
+      color: #FFF;
+      font-size: 13.5px;
+      font-weight: 700;
+      padding: 7px 18px;
+      border-radius: 7px;
+      cursor: pointer;
+    }
+    .play-btn:hover { background: #0056B3; }
+    .scene-jump-btn {
+      background: #070D18;
+      border: 1px solid #1E293B;
+      color: #94A3B8;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .scene-jump-btn:hover { border-color: #38BDF8; color: #FFF; }
+    .toggle-btn {
+      background: #070D18;
+      border: 1px solid #1E293B;
+      color: #94A3B8;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .toggle-btn.on {
+      border-color: #38BDF8;
+      color: #38BDF8;
+      background: rgba(56, 189, 248, 0.1);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 상단 상태 표시 바 -->
+  <div class="top-bar">
+    <div class="project-badge">
+      <span class="badge">TAX ASSISTANT V3 FINAL</span>
+      <span class="demo-tag">실제 Tax Assistant UI 기반 Demo</span>
+      <span class="demo-data-tag">시연용 데이터 (DEMO DATA)</span>
+      <span class="project-title">세무 판례 AI 비서 제품 시연 (72초)</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <button class="toggle-btn on" id="voiceBtn" onclick="toggleVoice()">🔊 나레이션: ON</button>
+      <button class="toggle-btn on" id="bgmBtn" onclick="toggleBgm()">🎵 BGM / 효과음: ON</button>
+      <div class="time-display" id="timeDisplay">00:00 / 01:12</div>
+    </div>
+  </div>
+
+  <!-- 비디오 뷰포트 (16:9 Cinema Frame) -->
+  <div class="viewport" id="viewport" onclick="togglePlay()">
+
+    <!-- Scene 1: Problem (0.0s ~ 7.8s) -->
+    <div class="scene-layer active" id="scene1">
+      <div class="scene1-container">
+        <div class="desktop-grid">
+          <div class="window-card">
+            <div class="win-header"><div class="win-dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>국세법령정보시스템 (법령)</div>
+            <div class="win-body"><b>법인세법 제19조 (손금의 범위)</b><br/>손금은 자본 또는 출자의 환급, 잉여금의 처분 및 이 법에서 규정하는 것은 제외하고 당해 법인의 순자산을 감소시키는 거래로 인하여 발생하는 손비의 금액으로 한다...</div>
+          </div>
+          <div class="window-card">
+            <div class="win-header"><div class="win-dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>대법원 종합법률정보 (판례)</div>
+            <div class="win-body"><b>관련 판례 예시 — DEMO DATA</b><br/>【판시사항】계약 합의해지에 따라 지급된 손해배상금의 손금산입 적격성 및 귀속사업연도 검토...</div>
+          </div>
+          <div class="window-card">
+            <div class="win-header"><div class="win-dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>사내 세무 검토 엑셀 (과거자료)</div>
+            <div class="win-body"><b>2024_상반기_계약해지_손실검토_최종.xlsx</b><br/>시트1: 위약금 산정내역 (셀 F14 #REF! 오류)<br/>시트2: 거래처 협의 메모 미첨부...</div>
+          </div>
+          <div class="window-card">
+            <div class="win-header"><div class="win-dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>사내 아웃룩 메일함 (메일)</div>
+            <div class="win-body"><b>[FW] 위약금 관련 회계법인 자문 회신</b><br/>보낸사람: 외부 세무자문역<br/>본 메일의 첨부 파일은 보존 기한 경과로 열람할 수 없습니다...</div>
+          </div>
+        </div>
+
+        <div class="problem-overlay">
+          <h2>세무 검토에 필요한 정보는 많지만<br/><span style="color:#F87171;">검토 과정은 흩어져 있습니다.</span></h2>
+          <p>법령 · 판례 · 엑셀 · 메일에 분산된 검토 업무</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scene 2: Solution (7.8s ~ 13.0s) -->
+    <div class="scene-layer" id="scene2">
+      <div class="scene2-hero">
+        <div class="hero-badge">AI TAX INTELLIGENCE PLATFORM</div>
+        <div class="hero-title">TAX ASSISTANT</div>
+        <div class="hero-slogan">
+          검색에서 끝나는 AI가 아니라<br/>
+          <span style="color:#38BDF8;">검토 경험이 쌓이는 세무 업무 플랫폼</span>
+        </div>
+        <div class="hero-chips">
+          <div class="chip">🔍 법령·판례 근거 검색</div>
+          <div class="chip">⚖️ 처분 vs 대응 논리 대조</div>
+          <div class="chip">⏱️ Review History 자동 누적</div>
+          <div class="chip">📁 Vault 핵심 선별</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scene 3: Actual Tax Assistant Product Demo (13.0s ~ 38.0s) -->
+    <div class="scene-layer" id="scene3">
+      <div class="demo-window" style="background:#040711; display:flex; flex-direction:column; position:relative; overflow:hidden;">
+        <!-- 상단 윈도우 바 -->
+        <div class="demo-top-bar">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div class="win-dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+            <span style="font-size:11.5px; font-weight:700; color:#E2E8F0;">CJ Freshway Tax Assistant — 실제 시스템 구동 화면 (Screen Recording)</span>
+            <span class="demo-tag" style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.35); color:#34D399;">실제 구동 녹화 화면</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:10.5px; color:#10B981; font-weight:700;">● Live Product Walkthrough</span>
+          </div>
+        </div>
+
+        <!-- 실제 녹화 영상 플레이어 영역 -->
+        <div style="flex:1; position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; background:#040711;">
+          <video id="realDemoVideo" src="real_screen_record.mp4" playsinline muted preload="auto" style="width:100%; height:100%; object-fit:contain;"></video>
+          <!-- 개인정보 보호 마스크 (좌측 하단 개인 이메일 완벽 가림) -->
+          <div style="position:absolute; bottom:52px; left:12px; width:145px; height:26px; background:#070C16; border-radius:4px; border:1px solid #1E293B; display:flex; align-items:center; justify-content:center; font-size:10px; color:#64748B; pointer-events:none; z-index:50;">
+            사내 세무 검토 계정
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scene 4: Review History (38.0s ~ 48.0s) -->
+    <div class="scene-layer" id="scene4">
+      <div class="history-app-frame">
+        <div class="app-sidebar">
+          <div class="side-brand">⚖️ TAX ASSISTANT</div>
+          <div class="side-item">✏️ 새 검토</div>
+          <div class="side-item active">⏱️ 검토 기록 (History)</div>
+          <div class="side-item">📁 저장한 자료 (Vault)</div>
+        </div>
+        <div class="history-main-area">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:13px; font-weight:700; color:#FFF;">⏱️ 세무 검토 기록 (Review History)</span>
+            <span style="font-size:10.5px; color:#38BDF8;">수행한 검토 자동 아카이브 & Audit Trail</span>
+          </div>
+          <!-- 정직한 실제 통계 카드 (미검증 수치 제거) -->
+          <div class="history-kpi-bar">
+            <div class="hkpi-card"><div class="hkpi-val">3건</div><div class="hkpi-lbl">시연 DB 누적 검토</div></div>
+            <div class="hkpi-card"><div class="hkpi-val">Audit Trail</div><div class="hkpi-lbl">이력 영구 보존</div></div>
+            <div class="hkpi-card"><div class="hkpi-val">Knowledge</div><div class="hkpi-lbl">지식 자산화 연계</div></div>
+          </div>
+          <!-- 방금 검토한 최상단 카드 (Scene 3 직결) -->
+          <div class="history-real-card latest">
+            <div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:12.5px; font-weight:700; color:#FFF;">거래처 계약 중도해지 위약금은 법인세상 손금으로 인정될 수 있는가?</span>
+                <span style="background:rgba(56,189,248,0.2); border:1px solid #38BDF8; color:#38BDF8; font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px;">방금 수행한 검토 자동 저장됨</span>
+              </div>
+              <div style="font-size:10.5px; color:#64748B; margin-top:3px;">
+                <span>법인세</span> • <span>방금 전 검토</span> • <span style="color:#34D399; font-weight:700;">직접근거 2건</span> • <span style="color:#94A3B8;">사내 세무 검토 자동 기록</span>
+              </div>
+            </div>
+            <span style="font-size:11px; color:#F59E0B; font-weight:700;">유의</span>
+          </div>
+          <!-- 과거 누적 카드 1 -->
+          <div class="history-real-card">
+            <div>
+              <div style="font-size:12.5px; font-weight:700; color:#CBD5E1;">식자재 유통 계약 중도해지 위약금의 손금산입 적격성 및 귀속사업연도</div>
+              <div style="font-size:10.5px; color:#64748B; margin-top:3px;">
+                <span>법인세</span> • <span>2026-09-15</span> • <span style="color:#60A5FA; font-weight:700;">누적 검토 3회</span>
+              </div>
+            </div>
+            <span style="font-size:11px; color:#10B981; font-weight:700;">적법</span>
+          </div>
+          <!-- 과거 누적 카드 2 -->
+          <div class="history-real-card">
+            <div>
+              <div style="font-size:12.5px; font-weight:700; color:#CBD5E1;">상법상 배당가능이익 초과 위법배당 세무조정 검토</div>
+              <div style="font-size:10.5px; color:#64748B; margin-top:3px;">
+                <span>조세일반</span> • <span>2026-09-04</span> • <span style="color:#94A3B8;">가지급금 인정이자</span>
+              </div>
+            </div>
+            <span style="font-size:11px; color:#F59E0B; font-weight:700;">유의</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scene 5: Vault (48.0s ~ 55.0s) -->
+    <div class="scene-layer" id="scene5">
+      <div class="vault-layout">
+        <div class="app-sidebar">
+          <div class="side-brand">⚖️ TAX ASSISTANT</div>
+          <div class="side-item">✏️ 새 검토</div>
+          <div class="side-item">⏱️ 검토 기록 (History)</div>
+          <div class="side-item active">📁 저장한 자료 (Vault)</div>
+        </div>
+        <div class="vault-content">
+          <div class="diff-banner">
+            <div class="diff-item"><span style="color:#38BDF8; font-weight:700;">⏱️ Review History:</span> 수행한 검토의 자동 기록 (영구 아카이브)</div>
+            <div style="color:#64748B;">|</div>
+            <div class="diff-item"><span style="color:#A5B4FC; font-weight:700;">📁 Vault:</span> 사용자가 선별한 핵심 자료 (실무 메모 및 북마크)</div>
+          </div>
+          <div style="background:#0B1222; border:1px solid #1E293B; border-radius:8px; padding:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.3); color:#A5B4FC; font-size:10px; font-weight:700; padding:2px 8px; border-radius:4px;">#선별보관 #위약금손금산입</span>
+              <span style="font-size:10.5px; color:#64748B;">저장일시: 2026-09-28</span>
+            </div>
+            <div style="font-size:13.5px; font-weight:700; color:#FFF; margin:6px 0;">계약중도해지 손해배상금 세무 의견서 [DEMO DATA]</div>
+            <div style="font-size:11px; color:#94A3B8;">합의해약 시 지급한 손해배상금의 손금 인정 적격성 입증 핵심 법리</div>
+            <div style="background:#080D1A; border-left:3px solid #38BDF8; padding:8px 10px; font-size:11px; color:#CBD5E1; margin-top:8px; border-radius:0 4px 4px 0;">
+              💡 <b>담당자 실무 메모:</b> 거래처 분쟁 종결 품의 시 본 사건의 4대 증빙 체크리스트(합의서, 실손해표, 영수증) 필수 첨부할 것. (법무팀 공유 완료)
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scene 6: Knowledge DB (55.0s ~ 63.0s) -->
+    <div class="scene-layer" id="scene6">
+      <div class="knowledge-hub">
+        <div class="center-core">
+          <span class="vision-sub-badge">Target Architecture · Knowledge Vision</span>
+          <span style="font-size:11px; font-weight:700; color:#38BDF8; letter-spacing:1px;">ENTERPRISE KNOWLEDGE</span>
+          <span style="font-size:17px; font-weight:900; color:#FFF; margin-top:4px;">Tax Review<br/>Knowledge DB</span>
+          <span style="font-size:10px; color:#94A3B8; margin-top:4px;">반복되는 세무 검토를 조직의 Knowledge로</span>
+        </div>
+        <div class="flow-node fn1">1. 사실관계 & 세무 질의</div>
+        <div class="flow-node fn2">2. 법령 및 판례 근거 분석</div>
+        <div class="flow-node fn3">3. 과세 vs 대응 2단 대조</div>
+        <div class="flow-node fn4">4. 필수 증빙 체크리스트</div>
+        <div class="flow-node fn5">5. Review History 자동 누적</div>
+        <div class="flow-node fn6">6. 선별 Vault 실무 메모</div>
+      </div>
+    </div>
+
+    <!-- Scene 7: Ending (63.0s ~ 72.0s) -->
+    <div class="scene-layer" id="scene7">
+      <div class="ending-hero">
+        <div class="ending-title">TAX ASSISTANT</div>
+        <div class="ending-copy">
+          검색에서 끝나는 AI가 아니라,<br/>
+          <span style="color:#FFF;">검토 경험이 쌓이는 세무 업무 플랫폼</span>
+        </div>
+        <div class="ending-sub">Search · Review · Evidence · Knowledge</div>
+      </div>
+    </div>
+
+    <!-- 하단 자막 바 -->
+    <div class="subtitle-bar" id="subBar">세무 검토에 필요한 정보는 많지만, 검토 과정은 흩어져 있습니다.</div>
+
+  </div>
+
+  <!-- 하단 비디오 플레이어 컨트롤 -->
+  <div class="controls">
+    <div class="progress-container" id="progressBarContainer">
+      <div class="progress-bar" id="progressBar"></div>
+      <div class="scene-markers">
+        <div class="marker" style="left:0%"><span class="marker-label">S1:문제</span></div>
+        <div class="marker" style="left:10.9%"><span class="marker-label">S2:솔루션</span></div>
+        <div class="marker" style="left:18.0%"><span class="marker-label">S3:실제Demo</span></div>
+        <div class="marker" style="left:52.7%"><span class="marker-label">S4:이력누적</span></div>
+        <div class="marker" style="left:66.6%"><span class="marker-label">S5:보관함</span></div>
+        <div class="marker" style="left:76.3%"><span class="marker-label">S6:지식DB</span></div>
+        <div class="marker" style="left:87.5%"><span class="marker-label">S7:엔딩</span></div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button class="play-btn" id="playBtn" onclick="togglePlay()">▶ V3 재생 (Space)</button>
+        <button class="scene-jump-btn" onclick="jumpTo(0)">S1 (문제)</button>
+        <button class="scene-jump-btn" onclick="jumpTo(7.9)">S2 (솔루션)</button>
+        <button class="scene-jump-btn" onclick="jumpTo(13.0)">S3 (실제Demo)</button>
+        <button class="scene-jump-btn" onclick="jumpTo(38.0)">S4 (이력)</button>
+        <button class="scene-jump-btn" onclick="jumpTo(48.0)">S5 (보관)</button>
+        <button class="scene-jump-btn" onclick="jumpTo(55.0)">S6 (지식DB)</button>
+        <button class="scene-jump-btn" onclick="jumpTo(63.0)">S7 (엔딩)</button>
+      </div>
+      <div style="font-size:12px; color:#64748B;">
+        단축키: <b>Space</b> (재생/정지) · <b>← / →</b> (5초 이동)
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const TOTAL_SECONDS = 72;
+    let currentTime = 0;
+    let isPlaying = false;
+    let timer = null;
+    let isVoiceEnabled = true;
+    let isBgmEnabled = true;
+    let currentAudio = null;
+    let lastPlayedSubIndex = -1;
+
+    // V3 FINAL 정밀 타임코드 & 나레이션
+    const subtitles = [
+      { start: 0.0, end: 7.87, text: "하나의 세무 이슈를 검토하기 위해, 우리는 법령, 판례, 과거 검토자료를 다시 찾습니다.", audio: "audio/v3_s1_01.mp3" },
+      { start: 7.9, end: 13.0, text: "Tax Assistant는 이 과정을 하나의 Workflow로 연결합니다.", audio: "audio/v3_s2_01.mp3" },
+      { start: 13.2, end: 18.7, text: "질문을 입력하면 관련 근거를 찾고 검토 결과를 정리합니다.", audio: "audio/v3_s3_01.mp3" },
+      { start: 19.0, end: 26.5, text: "과세관청의 논거와 납세자의 대응 논리를 비교하고, 관련 근거를 직접 확인합니다.", audio: "audio/v3_s3_02.mp3" },
+      { start: 27.0, end: 34.0, text: "그리고 이 모든 검토 과정은 기록으로 이어집니다.", audio: "audio/v3_s3_03.mp3" },
+      { start: 38.0, end: 47.5, text: "검토가 끝나도 지식은 사라지지 않습니다. 수행한 검토는 Review History에 자동으로 축적됩니다.", audio: "audio/v3_s4_01.mp3" },
+      { start: 48.0, end: 54.5, text: "중요한 판례와 자료는 별도로 선별해 다시 활용합니다.", audio: "audio/v3_s5_01.mp3" },
+      { start: 55.0, end: 62.5, text: "한 사람의 검토가 조직의 세무 지식으로 축적됩니다.", audio: "audio/v3_s6_01.mp3" },
+      { start: 63.0, end: 69.5, text: "검색에서 끝나는 AI가 아니라, 검토 경험이 쌓이는 세무 업무 플랫폼.", audio: "audio/v3_s7_01.mp3" },
+      { start: 69.7, end: 72.0, text: "Tax Assistant.", audio: "audio/v3_s7_02.mp3" }
+    ];
+
+    const demoQueryText = "거래처 계약 중도해지 위약금은 법인세상 손금으로 인정될 수 있는가?";
+
+    // ----------------- Web Audio API (BGM & 효과음) -----------------
+    let audioCtx = null;
+    let bgmGain = null;
+    let bgmOsc1 = null;
+    let bgmOsc2 = null;
+
+    function initAudioContext() {
+      if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContext();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    // ----------------- 실제 BGM 오디오 트랙 & Audio Ducking -----------------
+    const bgmAudio = new Audio('audio/tax_assistant_bgm.mp3');
+    bgmAudio.loop = true;
+    let targetBgmVolume = 0.22;
+
+    function setBgmDucking(isSpeaking) {
+      if (!isBgmEnabled) return;
+      // Audio Ducking: 나레이션 중에는 BGM 볼륨 7%로 낮춤, 나레이션 없는 구간에서는 22%로 복원
+      targetBgmVolume = isSpeaking ? 0.07 : 0.22;
+      bgmAudio.volume = targetBgmVolume;
+    }
+
+    function startBgm() {
+      if (!isBgmEnabled) return;
+      try {
+        bgmAudio.volume = targetBgmVolume;
+        bgmAudio.play().catch(() => {});
+      } catch (e) {}
+    }
+
+    function stopBgm() {
+      try {
+        bgmAudio.pause();
+      } catch (e) {}
+    }
+
+    // 미세 효과음 생성기 (Web Audio 합성)
+    function playSfx(type) {
+      if (!isBgmEnabled) return;
+      initAudioContext();
+      const now = audioCtx.currentTime;
+
+      if (type === 'type') {
+        // 아주 부드러운 키보드 틱 소리
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(320 + Math.random() * 80, now);
+        gain.gain.setValueAtTime(0.015, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.05);
+      } else if (type === 'click') {
+        // 소프트 마우스 클릭음
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, now);
+        gain.gain.setValueAtTime(0.04, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.07);
+      } else if (type === 'chime') {
+        // 검토 결과 등장 차임 (신뢰감 있는 고음질 듀오톤)
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, now); // D5
+        osc.frequency.exponentialRampToValueAtTime(880, now + 0.18); // A5
+        gain.gain.setValueAtTime(0.035, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.36);
+      } else if (type === 'save') {
+        // 이력 자동 저장 확인음
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, now); // C5
+        gain.gain.setValueAtTime(0.03, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.26);
+      }
+    }
+
+    function toggleBgm() {
+      isBgmEnabled = !isBgmEnabled;
+      const bBtn = document.getElementById('bgmBtn');
+      if (isBgmEnabled) {
+        bBtn.innerText = "🎵 BGM / 효과음: ON";
+        bBtn.classList.add('on');
+        if (isPlaying) startBgm();
+      } else {
+        bBtn.innerText = "🔇 BGM / 효과음: OFF";
+        bBtn.classList.remove('on');
+        stopBgm();
+      }
+    }
+
+    function toggleVoice() {
+      isVoiceEnabled = !isVoiceEnabled;
+      const vBtn = document.getElementById('voiceBtn');
+      if (isVoiceEnabled) {
+        vBtn.innerText = "🔊 나레이션: ON";
+        vBtn.classList.add('on');
+      } else {
+        vBtn.innerText = "🔇 나레이션: OFF";
+        vBtn.classList.remove('on');
+        stopAllSpeech();
+      }
+    }
+
+    function stopAllSpeech() {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+      }
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    }
+
+    function playAudioSnippet(text, audioSrc) {
+      if (!isVoiceEnabled) return;
+      stopAllSpeech();
+      if (audioSrc) {
+        try {
+          currentAudio = new Audio(audioSrc);
+          const p = currentAudio.play();
+          if (p !== undefined) {
+            p.catch(() => speakWithBrowserTTS(text));
+          }
+        } catch (e) {
+          speakWithBrowserTTS(text);
+        }
+      } else if (text) {
+        speakWithBrowserTTS(text);
+      }
+    }
+
+    function speakWithBrowserTTS(text) {
+      if (!isVoiceEnabled || !('speechSynthesis' in window)) return;
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'ko-KR';
+        u.rate = 1.05;
+        const voices = window.speechSynthesis.getVoices();
+        const ko = voices.find(v => v.lang.startsWith('ko'));
+        if (ko) u.voice = ko;
+        window.speechSynthesis.speak(u);
+      } catch (e) {}
+    }
+
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60).toString().padStart(2, '0');
+      const s = Math.floor(sec % 60).toString().padStart(2, '0');
+      return `${m}:${s}`;
+    }
+
+    // Scene 3 실구동 데모 애니메이션 동기화
+    // Scene 3 실제 녹화 영상 동기화
+    function updateDemoVideo(t) {
+      const v = document.getElementById('realDemoVideo');
+      if (!v) return;
+
+      if (t >= 13.0 && t < 38.0) {
+        // 13.0s ~ 38.0s (25초) 동안 68.45초 녹화 영상을 약 2.74배속으로 정밀 매핑
+        const targetVideoTime = (t - 13.0) * (68.45 / 25.0);
+        
+        // Wait until video has loaded enough metadata before seeking
+        if (v.readyState < 1) return;
+
+        if (isPlaying) {
+          if (v.paused) {
+            v.currentTime = targetVideoTime;
+            v.playbackRate = 68.45 / 25.0;
+            v.play().catch(() => {});
+          } else if (Math.abs(v.currentTime - targetVideoTime) > 1.2) {
+            v.currentTime = targetVideoTime;
+          }
+        } else {
+          v.pause();
+          v.currentTime = targetVideoTime;
+        }
+      } else {
+        if (v.readyState >= 1 && !v.paused) {
+          v.pause();
+        }
+      }
+    }
+
+    function updateScene(t) {
+      document.getElementById('timeDisplay').innerText = `${formatTime(t)} / ${formatTime(TOTAL_SECONDS)}`;
+      document.getElementById('progressBar').style.width = `${(t / TOTAL_SECONDS) * 100}%`;
+
+      // 씬 전환 로직 (72초 기준)
+      const s1 = document.getElementById('scene1');
+      const s2 = document.getElementById('scene2');
+      const s3 = document.getElementById('scene3');
+      const s4 = document.getElementById('scene4');
+      const s5 = document.getElementById('scene5');
+      const s6 = document.getElementById('scene6');
+      const s7 = document.getElementById('scene7');
+
+      [s1, s2, s3, s4, s5, s6, s7].forEach(s => s.classList.remove('active'));
+
+      if (t < 7.9) {
+        s1.classList.add('active');
+      } else if (t < 13.0) {
+        s2.classList.add('active');
+      } else if (t < 38.0) {
+        s3.classList.add('active');
+      } else if (t < 48.0) {
+        if (!s4.classList.contains('active')) playSfx('save');
+        s4.classList.add('active');
+      } else if (t < 55.0) {
+        s5.classList.add('active');
+      } else if (t < 63.0) {
+        s6.classList.add('active');
+      } else {
+        s7.classList.add('active');
+      }
+
+      updateDemoVideo(t);
+
+      // 자막 및 음성 동기화 & Audio Ducking
+      let activeSubIndex = -1;
+      for (let i = 0; i < subtitles.length; i++) {
+        if (t >= subtitles[i].start && t < subtitles[i].end) {
+          activeSubIndex = i;
+          break;
+        }
+      }
+
+      const subBar = document.getElementById('subBar');
+      if (activeSubIndex !== -1) {
+        setBgmDucking(true);
+        const sub = subtitles[activeSubIndex];
+        subBar.innerText = sub.text;
+        subBar.style.opacity = "1";
+
+        if (activeSubIndex !== lastPlayedSubIndex) {
+          lastPlayedSubIndex = activeSubIndex;
+          playAudioSnippet(sub.text, sub.audio);
+        }
+      } else {
+        setBgmDucking(false);
+        subBar.style.opacity = "0.2";
+      }
+    }
+
+    function tick() {
+      currentTime += 0.1;
+      if (currentTime >= TOTAL_SECONDS) {
+        currentTime = TOTAL_SECONDS;
+        updateScene(currentTime);
+        pause();
+        return;
+      }
+      updateScene(currentTime);
+    }
+
+    function play() {
+      isPlaying = true;
+      initAudioContext();
+      if (isBgmEnabled) startBgm();
+      document.getElementById('playBtn').innerText = "⏸ 일시정지 (Space)";
+      timer = setInterval(tick, 100);
+    }
+
+    function pause() {
+      isPlaying = false;
+      document.getElementById('playBtn').innerText = "▶ V3 재생 (Space)";
+      clearInterval(timer);
+      stopAllSpeech();
+      stopBgm();
+      const v = document.getElementById('realDemoVideo');
+      if (v) v.pause();
+    }
+
+    function togglePlay() {
+      if (isPlaying) {
+        pause();
+      } else {
+        if (currentTime >= TOTAL_SECONDS) {
+          currentTime = 0;
+          lastPlayedSubIndex = -1;
+        }
+        play();
+      }
+    }
+
+    function jumpTo(sec) {
+      currentTime = sec;
+      lastPlayedSubIndex = -1;
+      stopAllSpeech();
+      try {
+        if (bgmAudio && bgmAudio.duration) {
+          bgmAudio.currentTime = sec % bgmAudio.duration;
+        }
+      } catch (e) {}
+      const v = document.getElementById('realDemoVideo');
+      if (v) {
+        if (v.readyState >= 1) {
+          v.pause();
+          if (sec >= 13.0 && sec < 38.0) {
+            v.currentTime = (sec - 13.0) * (68.45 / 25.0);
+          } else {
+            v.currentTime = 0;
+          }
+        } else {
+          // If not loaded yet, just let the next tick handle it once it loads
+          console.warn("Video not ready for jumpTo");
+        }
+      }
+      updateScene(currentTime);
+    }
+
+    // 타임라인 클릭 이동
+    document.getElementById('progressBarContainer').addEventListener('click', (e) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const pos = (e.clientX - rect.left) / rect.width;
+      jumpTo(Math.max(0, Math.min(TOTAL_SECONDS, pos * TOTAL_SECONDS)));
+    });
+
+    // 키보드 단축키
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        jumpTo(Math.min(TOTAL_SECONDS, currentTime + 5));
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        jumpTo(Math.max(0, currentTime - 5));
+      }
+    });
+
+    // 초기 화면 설정
+    updateScene(0);
+  </script>
+</body>
+</html>

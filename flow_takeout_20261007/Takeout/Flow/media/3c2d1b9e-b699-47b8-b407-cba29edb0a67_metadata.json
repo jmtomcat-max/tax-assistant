@@ -1,0 +1,18 @@
+{
+  "mediaEntries": [{
+    "mediaId": "3c2d1b9e-b699-47b8-b407-cba29edb0a67",
+    "mediaTitle": "Animating human centric knowledg…",
+    "mediaType": "VIDEO",
+    "source": "generated",
+    "project": "10월 06 - 09:44",
+    "projectId": "f3bc7300-7777-4645-9d25-1b56647df491",
+    "createdAt": "2026-10-05 20:32:53.458246-07",
+    "modelName": "Omni Flash",
+    "dimensions": {
+      "duration": "10s"
+    },
+    "generationInputs": {
+      "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE"
+    }
+  }]
+}

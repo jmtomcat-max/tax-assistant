@@ -1,0 +1,5 @@
+2026/10/06-09:57:30.854 76e8 Creating DB C:\Users\jongmin98\.gemini\antigravity\scratch\tax_law_assistant\promo_package\edge_capture_profile\Default\EdgeCoupons/coupons_data.db since it was missing.
+2026/10/06-09:57:30.989 76e8 Reusing MANIFEST C:\Users\jongmin98\.gemini\antigravity\scratch\tax_law_assistant\promo_package\edge_capture_profile\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/10/06-09:57:31.749 7fb8 Level-0 table #5: started
+2026/10/06-09:57:31.763 7fb8 Level-0 table #5: 683273 bytes OK
+2026/10/06-09:57:31.767 7fb8 Delete type=0 #3

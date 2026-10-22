@@ -1,0 +1,1412 @@
+# -*- coding: utf-8 -*-
+"""
+CJ프레시웨이 세무·조세 판례 실시간 검색 및 AI 분석 비서 - UI 컴포넌트 & 디자인 시스템
+- 커스텀 CSS 테마 (CJ 딥 블루 & 시그니처 포레스트 다크그린)
+- 공통 UI 엘리먼트 (노션 포맷터, 원클릭 복사 버튼, 판례 비교표, 판례 카드 등)
+"""
+import streamlit as st
+import streamlit.components.v1 as components
+import pandas as pd
+import re
+import json
+from storage import save_saved_cases, check_duplicate_case
+from law_api import fetch_prec_detail
+from summarizer import summarize_case, generate_ruling_summary
+
+
+# ----------------- CJ프레시웨이 테마 커스텀 CSS 적용 -----------------
+def apply_custom_css():
+    st.markdown("""
+    <style>
+        /* =========================================================================
+           CJ프레시웨이 세무 리서치 & AI 검토 - 전문가용(Big 4 / 로펌) 디자인 시스템
+           - Primary: #005B45 (포레스트 다크그린)
+           - Navy: #003876 (CJ 딥 네이비)
+           - Background: #F8FAFC (Slate 50)
+           - Surface: #FFFFFF (Clean White)
+           - Border: #E2E8F0 (Slate 200)
+           - Main Text: #0F172A (Slate 900)
+           - Sub Text: #64748B (Slate 500)
+           - High Risk: #B42318 (Red) / Medium: #B54708 (Amber) / Low: #027A48 (Green)
+           ========================================================================= */
+
+        @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css");
+
+        :root {
+            --primary: #005B45;
+            --primary-hover: #004736;
+            --navy: #003876;
+            --bg: #F8FAFC;
+            --surface: #FFFFFF;
+            --border: #E2E8F0;
+            --text-main: #0F172A;
+            --text-sub: #64748B;
+            --risk-high: #B42318;
+            --risk-med: #B54708;
+            --risk-low: #027A48;
+        }
+
+        /* 1. 타이포그래피 */
+        html, body, .stApp, 
+        p, h1, h2, h3, h4, h5, h6, 
+        label, input, textarea, select, 
+        div:not([data-testid*="Icon"]):not([class*="material-"]):not(.material-symbols-rounded):not(.material-symbols-outlined), 
+        span:not([data-testid*="Icon"]):not([class*="material-"]):not(.material-symbols-rounded):not(.material-symbols-outlined) {
+            font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", sans-serif;
+            -webkit-font-smoothing: antialiased;
+            color: #0F172A;
+            letter-spacing: -0.015em;
+        }
+
+        /* 2. 전체 앱 배경 */
+        .stApp {
+            background-color: #F8FAFC !important;
+        }
+        .block-container {
+            padding-top: 1.25rem !important;
+            padding-bottom: 5rem !important;
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+            max-width: 1440px !important;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.08); opacity: 0.85; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* 머티리얼 심볼 복원 */
+        [data-testid*="Icon"], [data-testid="stIconMaterial"], [class*="material-"] {
+            font-family: "Material Symbols Rounded", "Material Icons" !important;
+            display: inline-block !important;
+        }
+
+        /* 3. 사이드바 (사무용 심플 내비게이션) */
+        section[data-testid="stSidebar"] {
+            background-color: #FFFFFF !important;
+            border-right: 1px solid #E2E8F0 !important;
+        }
+        section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+            background-color: #FFFFFF !important;
+            padding-top: 1.2rem !important;
+        }
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+            height: 40px !important;
+            min-height: 40px !important;
+            background-color: #FFFFFF !important;
+            border: 1px solid #E2E8F0 !important;
+            color: #334155 !important;
+            font-weight: 600 !important;
+            font-size: 0.88rem !important;
+            border-radius: 6px !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+            padding: 0 14px !important;
+            margin-bottom: 5px !important;
+            box-shadow: none !important;
+            transition: all 0.15s ease !important;
+        }
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+            background-color: #F8FAFC !important;
+            border-color: #005B45 !important;
+            color: #005B45 !important;
+        }
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"],
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button[data-testid="baseButton-primary"] {
+            background-color: #005B45 !important;
+            border: 1px solid #004D3A !important;
+            color: #FFFFFF !important;
+            font-weight: 700 !important;
+            box-shadow: 0 2px 6px rgba(0, 91, 69, 0.15) !important;
+        }
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] * {
+            color: #FFFFFF !important;
+        }
+
+        /* 4. 버튼 스타일링 (CJ프레시웨이 포레스트 다크그린 #005B45 주요 버튼 vs 흰색/회색 보조 버튼) */
+        button[kind="primary"], 
+        button[kind="primaryFormSubmit"],
+        button[data-testid="baseButton-primary"], 
+        button[data-testid="stBaseButton-primary"],
+        div[data-testid="stFormSubmitButton"] > button,
+        div[data-testid="stFormSubmitButton"] button {
+            background-color: #005B45 !important;
+            background: #005B45 !important;
+            border: 1px solid #004D3A !important;
+            color: #FFFFFF !important;
+            font-weight: 700 !important;
+            border-radius: 6px !important;
+            box-shadow: 0 1px 3px rgba(0, 91, 69, 0.15) !important;
+            transition: all 0.15s ease !important;
+        }
+        button[kind="primary"]:hover, 
+        button[kind="primaryFormSubmit"]:hover,
+        button[data-testid="baseButton-primary"]:hover, 
+        button[data-testid="stBaseButton-primary"]:hover,
+        div[data-testid="stFormSubmitButton"] > button:hover,
+        div[data-testid="stFormSubmitButton"] button:hover {
+            background-color: #004736 !important;
+            background: #004736 !important;
+            border-color: #003828 !important;
+            color: #FFFFFF !important;
+            box-shadow: 0 3px 8px rgba(0, 91, 69, 0.22) !important;
+        }
+        button[kind="primary"] *, 
+        button[kind="primaryFormSubmit"] *,
+        button[data-testid="baseButton-primary"] *, 
+        button[data-testid="stBaseButton-primary"] *,
+        div[data-testid="stFormSubmitButton"] button * {
+            color: #FFFFFF !important;
+        }
+
+        /* 보조 버튼: primary 제외 명확화 */
+        div[data-testid="stButton"] > button:not([kind="primary"]):not([data-testid="baseButton-primary"]) {
+            background-color: #FFFFFF !important;
+            border: 1.5px solid #CBD5E1 !important;
+            color: #334155 !important;
+            font-weight: 600 !important;
+            border-radius: 6px !important;
+            transition: all 0.15s ease !important;
+        }
+
+        div[data-testid="stButton"] > button:not([kind="primary"]):not([data-testid="baseButton-primary"]):hover {
+            background-color: #F8FAFC !important;
+            border-color: #94A3B8 !important;
+            color: #0F172A !important;
+        }
+
+        /* 🚨 스트림릿 부모 컨테이너의 가로 넓이 제한(클리핑) 해제 🚨 */
+        [data-testid="stMarkdownContainer"] {
+            overflow-x: auto !important; 
+            max-width: 100% !important;
+        }
+        
+        /* 우리가 만든 테이블이 강제로 줄어들지 않도록 보호 */
+        .stMarkdown table {
+            min-width: 1100px !important;
+            table-layout: fixed !important; 
+            border-collapse: collapse !important;
+            font-size: 0.88rem !important;
+            word-break: keep-all !important;
+        }
+        
+        .stMarkdown table th:nth-child(4), 
+        .stMarkdown table td:nth-child(4) {
+            width: 130px !important; /* '결론' 배지 컬럼 너비 강제 확보 */
+            min-width: 125px !important;
+        }
+
+        .stMarkdown table th:nth-child(5), 
+        .stMarkdown table td:nth-child(5) {
+            width: 270px !important; /* '판단 기준' 컬럼 너비 */
+            min-width: 250px !important;
+        }
+
+        div[data-testid="stDataFrame"] {
+            border: 1px solid #E2E8F0 !important;
+            border-radius: 8px !important;
+            overflow: hidden !important;
+            background-color: #FFFFFF !important;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03) !important;
+        }
+
+        .custom-case-table th,
+        .custom-case-table td {
+            box-sizing: border-box !important;
+            word-break: keep-all !important;
+            overflow-wrap: break-word !important;
+        }
+
+        .custom-case-table .col-chk {
+            width: 50px !important;
+            min-width: 50px !important;
+            max-width: 50px !important;
+            text-align: center !important;
+        }
+        .custom-case-table .col-no {
+            width: 190px !important;
+            min-width: 180px !important;
+            word-break: break-all !important;
+            white-space: normal !important;
+        }
+        .custom-case-table .col-issue {
+            width: 180px !important;
+            min-width: 160px !important;
+            word-break: keep-all !important;
+            white-space: normal !important;
+        }
+        .custom-case-table .col-outcome {
+            width: 130px !important;
+            min-width: 125px !important;
+            max-width: 135px !important;
+            text-align: center !important;
+            white-space: nowrap !important;
+        }
+        .custom-case-table .col-criterion {
+            width: 270px !important;
+            min-width: 250px !important;
+            word-break: keep-all !important;
+            white-space: normal !important;
+            line-height: 1.5 !important;
+        }
+        .custom-case-table .col-app {
+            width: 220px !important;
+            min-width: 190px !important;
+            word-break: keep-all !important;
+            white-space: normal !important;
+            line-height: 1.45 !important;
+        }
+        .custom-case-table .col-link {
+            width: 60px !important;
+            min-width: 55px !important;
+            max-width: 60px !important;
+            text-align: center !important;
+        }
+
+        /* 표 행 hover: 아주 은은한 회색 배경 */
+        .stMarkdown table tbody tr:hover td {
+            background-color: #F8FAFC !important;
+        }
+
+        /* 6. 판례 피드 카드 & 보관함 카드 (세련된 초록 계열 hover 및 부드러운 -2px 부상) */
+        .case-container {
+            background-color: #FFFFFF !important;
+            border: 1.5px solid #E2E8F0 !important;
+            border-left: 4px solid transparent !important;
+            border-radius: 8px !important;
+            padding: 18px 22px !important;
+            margin-bottom: 12px !important;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            cursor: pointer;
+        }
+        .case-container:hover {
+            background: linear-gradient(135deg, #F0FDF4 0%, #FAFDFB 60%, #FFFFFF 100%) !important;
+            border-color: #A7D7C9 !important;
+            border-left: 4px solid #005B45 !important;
+            box-shadow: 0 6px 18px rgba(0, 91, 69, 0.10), 0 2px 6px rgba(15, 23, 42, 0.04) !important;
+            transform: translateY(-2px) !important;
+        }
+        .case-container:hover .case-title {
+            color: #004D3A !important;
+            transition: color 0.15s ease !important;
+        }
+        .case-container.case-focused {
+            background: #F0FDF4 !important;
+            border-color: #005B45 !important;
+            border-left: 4px solid #005B45 !important;
+            box-shadow: 0 6px 20px rgba(0, 91, 69, 0.12) !important;
+        }
+        .case-title {
+            font-size: 1.12rem !important;
+            font-weight: 700 !important;
+            color: #0F172A !important;
+            line-height: 1.45 !important;
+            margin: 8px 0 6px 0 !important;
+            transition: color 0.15s ease !important;
+        }
+
+        /* 최근 보관 사례 및 추천 시나리오 카드 호버 */
+        .recent-case-card {
+            background-color: #FFFFFF !important;
+            border: 1.5px solid #E2E8F0 !important;
+            border-left: 3px solid transparent !important;
+            border-radius: 8px !important;
+            padding: 12px 14px !important;
+            margin-bottom: 8px !important;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03) !important;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+        .recent-case-card:hover {
+            background: #F0FDF4 !important;
+            border-color: #A7D7C9 !important;
+            border-left: 3px solid #005B45 !important;
+            box-shadow: 0 4px 14px rgba(0, 91, 69, 0.08) !important;
+            transform: translateY(-2px) !important;
+        }
+
+        div.scenario-card-container div[data-testid="stButton"] > button {
+            height: auto !important;
+            min-height: 68px !important;
+            background: #FFFFFF !important;
+            border: 1.5px solid #E2E8F0 !important;
+            border-radius: 8px !important;
+            padding: 12px 16px !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+            font-size: 0.88rem !important;
+            line-height: 1.45 !important;
+            color: #1E293B !important;
+            font-weight: 600 !important;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03) !important;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            white-space: normal !important;
+        }
+        div.scenario-card-container div[data-testid="stButton"] > button:hover {
+            border-color: #A7D7C9 !important;
+            background: #F0FDF4 !important;
+            color: #005B45 !important;
+            transform: translateY(-2px) !important;
+            box-shadow: 0 4px 14px rgba(0, 91, 69, 0.08) !important;
+        }
+
+        /* 위험도 배지 공통 */
+        .badge-risk-high,
+        .badge-risk-med,
+        .badge-risk-low {
+            display: inline-flex;
+            align-items: center;
+            white-space: nowrap;
+            line-height: 1.2;
+            font-weight: 700;
+            border-radius: 5px;
+            padding: 3px 9px;
+        }
+
+        .badge-risk-high {
+            background-color: #FEF3F2 !important;
+            color: #B42318 !important;
+            border: 1px solid #FECDCA !important;
+        }
+        .badge-risk-med {
+            background-color: #FFFAEB !important;
+            color: #B54708 !important;
+            border: 1px solid #FEDF89 !important;
+        }
+        .badge-risk-low {
+            background-color: #ECFDF3 !important;
+            color: #027A48 !important;
+            border: 1px solid #A6F4C5 !important;
+        }
+        .badge-risk-info {
+            background-color: #EFF8FF !important;
+            color: #003876 !important;
+            border: 1px solid #B2DDFF !important;
+            font-weight: 700 !important;
+            font-size: 0.78rem !important;
+            padding: 3px 9px !important;
+            border-radius: 5px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            gap: 4px !important;
+        }
+
+        .tax-badge {
+            font-size: 0.78rem !important;
+            font-weight: 700 !important;
+            padding: 3px 9px !important;
+            border-radius: 5px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            gap: 3px !important;
+        }
+        .tax-corp { color: #005B45 !important; background-color: #ECFDF5 !important; border: 1px solid #A7F3D0 !important; }
+        .tax-vat { color: #003876 !important; background-color: #EFF8FF !important; border: 1px solid #B2DDFF !important; }
+        .tax-income { color: #B54708 !important; background-color: #FFFAEB !important; border: 1px solid #FEDF89 !important; }
+        .tax-etc { color: #475569 !important; background-color: #F1F5F9 !important; border: 1px solid #CBD5E1 !important; }
+
+        .case-badge-court {
+            font-size: 0.78rem !important;
+            font-weight: 600 !important;
+            color: #003876 !important;
+            background-color: #F0F5FA !important;
+            border: 1px solid #D0E0F2 !important;
+            padding: 3px 9px !important;
+            border-radius: 5px !important;
+        }
+        .case-badge-nts {
+            font-size: 0.78rem !important;
+            font-weight: 600 !important;
+            color: #78350F !important;
+            background-color: #FEF3C7 !important;
+            border: 1px solid #FDE68A !important;
+            padding: 3px 9px !important;
+            border-radius: 5px !important;
+        }
+
+        /* 판례 비교표 결론 배지 (4종) */
+        .badge-outcome-taxpayer {
+            background-color: #ECFDF5 !important;
+            color: #027A48 !important;
+            border: 1px solid #A6F4C5 !important;
+            font-weight: 700 !important;
+            font-size: 0.76rem !important;
+            padding: 3px 8px !important;
+            border-radius: 5px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            white-space: nowrap !important;
+        }
+        .badge-outcome-office {
+            background-color: #FEF3F2 !important;
+            color: #B42318 !important;
+            border: 1px solid #FECDCA !important;
+            font-weight: 700 !important;
+            font-size: 0.76rem !important;
+            padding: 3px 8px !important;
+            border-radius: 5px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            white-space: nowrap !important;
+        }
+        .badge-outcome-partial {
+            background-color: #FFFAEB !important;
+            color: #B54708 !important;
+            border: 1px solid #FEDF89 !important;
+            font-weight: 700 !important;
+            font-size: 0.76rem !important;
+            padding: 3px 8px !important;
+            border-radius: 5px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            white-space: nowrap !important;
+        }
+        .badge-outcome-unclear {
+            background-color: #FFFBEB !important;
+            color: #B45309 !important;
+            border: 1px solid #FDE68A !important;
+            font-weight: 700 !important;
+            font-size: 0.76rem !important;
+            padding: 3px 8px !important;
+            border-radius: 5px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            white-space: nowrap !important;
+        }
+
+        /* 8. 탭 (st.tabs) 스타일링 */
+        div[data-testid="stTabs"] div[data-baseweb="tab-list"] {
+            gap: 6px !important;
+            border-bottom: 2px solid #E2E8F0 !important;
+            margin-bottom: 16px !important;
+        }
+        div[data-testid="stTabs"] button[data-baseweb="tab"] {
+            font-size: 0.90rem !important;
+            font-weight: 600 !important;
+            color: #64748B !important;
+            padding: 8px 16px !important;
+            border-radius: 6px 6px 0 0 !important;
+            transition: all 0.15s ease !important;
+        }
+        div[data-testid="stTabs"] button[data-baseweb="tab"]:hover {
+            color: #005B45 !important;
+            background-color: #F8FAFC !important;
+        }
+        div[data-testid="stTabs"] button[aria-selected="true"] {
+            color: #005B45 !important;
+            font-weight: 700 !important;
+            border-bottom: 2px solid #005B45 !important;
+        }
+
+        /* 9. 액션 버튼 영역 높이 통일 */
+        div.card-actions div[data-testid="stButton"] > button {
+            height: 36px !important;
+            min-height: 36px !important;
+            border-radius: 6px !important;
+            font-size: 0.84rem !important;
+            font-weight: 600 !important;
+            padding: 0 10px !important;
+        }
+
+        /* 10. 아코디언 & 인풋 */
+        div[data-testid="stExpander"] {
+            border: 1px solid #E2E8F0 !important;
+            border-radius: 8px !important;
+            background-color: #FFFFFF !important;
+            margin-bottom: 12px !important;
+        }
+        div[data-testid="stExpander"] summary {
+            padding: 10px 16px !important;
+            font-size: 0.90rem !important;
+            font-weight: 600 !important;
+        }
+
+        /* 상단 메뉴 숨김 */
+        [data-testid="stDecoration"], [data-testid="stToolbarActions"], #MainMenu {
+            display: none !important;
+        }
+        header[data-testid="stHeader"] {
+            background: transparent !important;
+            pointer-events: none !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+# ----------------- 노션 리포트용 포맷터 및 태그 정제 -----------------
+def clean_index_tags(text: str) -> str:
+    if not text:
+        return ""
+    text = re.sub(r'\[\^?\d+\]', '', text)
+    text = re.sub(r'\[(판례|대법원|조세심판원|국세청|예규|재산세제|서면)\s*[^\]]*\]', '', text)
+    text = re.sub(r'\(\s*\)', '', text)
+    text = re.sub(r'\[\s*\]', '', text)
+    text = re.sub(r'【\s*】', '', text)
+    text = re.sub(r'[ \t]{2,}', ' ', text)
+    return text.strip()
+
+
+def format_notion_content(text: str) -> str:
+    if not text:
+        return ""
+    text = clean_index_tags(text)
+    
+    code_blocks = []
+    def code_replacer(match):
+        code_content = match.group(2).strip()
+        code_blocks.append(code_content)
+        return f"\n___CODE_BLOCK_{len(code_blocks)-1}___\n"
+
+    processed = re.sub(r'```([a-zA-Z0-9_-]*)\n?(.*?)```', code_replacer, text, flags=re.DOTALL)
+    processed = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#0F172A; font-weight:700;">\1</strong>', processed)
+    processed = re.sub(r'`([^`]+)`', r'<code style="background:#F1F5F9; color:#005B45; padding:2px 6px; border-radius:4px; font-size:0.88em; font-family:monospace;">\1</code>', processed)
+
+    lines = processed.split("\n")
+    output_lines = []
+    
+    for line in lines:
+        s = line.strip()
+        if not s:
+            continue
+        
+        placeholder_match = re.match(r'^___CODE_BLOCK_(\d+)___$', s)
+        if placeholder_match:
+            idx = int(placeholder_match.group(1))
+            code_text = code_blocks[idx]
+            escaped_code = (
+                code_text.replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+                .replace('\n', '<br>')
+            )
+            output_lines.append(
+                f'<div style="background:#F8FAFC; border:1px solid #CBD5E1; border-left:4px solid #005B45; padding:10px 14px; border-radius:6px; font-family:\'Pretendard\', monospace; font-size:0.88rem; color:#1E293B; margin:8px 0; line-height:1.6;">{escaped_code}</div>'
+            )
+            continue
+            
+        if s.startswith("#### "):
+            output_lines.append(f'<div style="font-size:0.96rem; font-weight:700; color:#004D3A; margin:14px 0 6px 0;">📌 {s[5:]}</div>')
+        elif s.startswith("### "):
+            output_lines.append(f'<div style="font-size:1.02rem; font-weight:700; color:#004D3A; margin:16px 0 8px 0;">📌 {s[4:]}</div>')
+        elif s.startswith("## "):
+            output_lines.append(f'<div style="font-size:1.1rem; font-weight:800; color:#004D3A; margin:18px 0 10px 0;">📌 {s[3:]}</div>')
+        elif s.startswith("* ") or s.startswith("- ") or s.startswith("• "):
+            content = s[2:].strip()
+            output_lines.append(f'<div style="margin-left:6px; line-height:1.6;"><span style="color:#005B45; font-weight:bold;">•</span> {content}</div>')
+        elif re.match(r'^\d+\.\s+', s):
+            num_match = re.match(r'^(\d+\.)\s+(.*)', s)
+            if num_match:
+                output_lines.append(f'<div style="margin-left:6px; line-height:1.6;"><span style="color:#005B45; font-weight:700;">{num_match.group(1)}</span> {num_match.group(2)}</div>')
+            else:
+                output_lines.append(f'<div style="line-height:1.6;">{s}</div>')
+        elif s == "---":
+            output_lines.append('<hr style="border:none; border-top:1px solid #E2E8F0; margin:12px 0;">')
+        else:
+            output_lines.append(f'<div style="line-height:1.6;">{s}</div>')
+
+    return "".join(output_lines)
+
+
+# ----------------- 원클릭 복사 버튼 컴포넌트 -----------------
+def render_copy_button(clip_text: str, key_id: str):
+    json_text = json.dumps(clip_text, ensure_ascii=False)
+    html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <style>
+      body {{ margin: 0; padding: 0; background: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+      .copy-btn {{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background-color: #FFFFFF;
+        border: 1px solid #CBD5E1;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #334155;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }}
+      .copy-btn:hover {{
+        background-color: #F8FAFC;
+        border-color: #005B45;
+        color: #005B45;
+      }}
+      .copy-btn.copied {{
+        background-color: #ECFDF5;
+        border-color: #059669;
+        color: #059669;
+      }}
+      .btn-icon {{ font-size: 0.95rem; }}
+    </style>
+    </head>
+    <body>
+    <button class="copy-btn" id="btn_{key_id}" onclick="copyReport()">
+      <span class="btn-icon" id="icon_{key_id}">📋</span>
+      <span id="label_{key_id}">사내 보고용 텍스트 복사</span>
+    </button>
+
+    <script>
+    const reportText = {json_text};
+
+    function copyReport() {{
+      const btn = document.getElementById('btn_{key_id}');
+      const icon = document.getElementById('icon_{key_id}');
+      const label = document.getElementById('label_{key_id}');
+
+      function showCopied() {{
+        btn.classList.add('copied');
+        icon.textContent = '✓';
+        label.textContent = '복사 완료!';
+        
+        setTimeout(() => {{
+          btn.classList.remove('copied');
+          icon.textContent = '📋';
+          label.textContent = '사내 보고용 텍스트 복사';
+        }}, 2200);
+      }}
+
+      try {{
+        const ta = document.createElement('textarea');
+        ta.value = reportText;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (success) {{
+          showCopied();
+          return;
+        }}
+      }} catch (e) {{}}
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {{
+        navigator.clipboard.writeText(reportText).then(showCopied).catch(e => {{
+          window.parent.postMessage({{type: 'copy', text: reportText}}, '*');
+          showCopied();
+        }});
+      }}
+    }}
+    </script>
+    </body>
+    </html>
+    """
+    components.html(html_code, height=44)
+
+
+# ----------------- 판례 결과 판단 배지 생성 -----------------
+def determine_case_outcome(case_item: dict) -> dict:
+    """
+    판례/예규의 판결요지, 사건명, 결론 텍스트를 분석하여 4가지 표준 결론 배지 결정:
+    - 납세자 유리 / 과세관청 유리 / 일부 인용 / 판단 불명확
+    """
+    text_corpus = (
+        str(case_item.get("summary", "")) + " " +
+        str(case_item.get("title", "")) + " " +
+        str(case_item.get("core_point", "")) + " " +
+        str(case_item.get("court_decision", ""))
+    ).lower()
+
+    if any(k in text_corpus for k in ["일부인용", "일부 인용", "일부취소", "일부 취소", "재조사", "경정하라", "일부승소"]):
+        return {
+            "label": "일부 인용",
+            "badge_html": '<span class="badge-outcome-partial">🟡 일부 인용</span>',
+            "detail": "일부 처분 취소 또는 재조사 경정 결정"
+        }
+
+    taxpayer_keys = ["인용", "취소한다", "원고승", "원고 승", "납세자승", "처분을 취소", "손금산입", "공제대상", "위법하다", "부당하다", "과세처분은 위법"]
+    office_keys = ["기각", "각하", "원고패", "원고 패", "적법하다", "손금불산입", "매입세액불공제", "과세처분은 적법", "과세관청승"]
+
+    has_taxpayer = any(k in text_corpus for k in taxpayer_keys)
+    has_office = any(k in text_corpus for k in office_keys)
+
+    if has_taxpayer and not has_office:
+        return {
+            "label": "납세자 유리",
+            "badge_html": '<span class="badge-outcome-taxpayer">🟢 납세자 유리</span>',
+            "detail": "과세처분 취소 또는 납세자 주장 인용"
+        }
+    elif has_office and not has_taxpayer:
+        return {
+            "label": "과세관청 유리",
+            "badge_html": '<span class="badge-outcome-office">🔴 과세관청 유리</span>',
+            "detail": "청구 기각 또는 과세관청 처분 적법 유지"
+        }
+    elif has_taxpayer and has_office:
+        if "기각한다" in text_corpus or "기각됨" in text_corpus:
+            return {
+                "label": "과세관청 유리",
+                "badge_html": '<span class="badge-outcome-office">🔴 과세관청 유리</span>',
+                "detail": "납세자 청구 기각"
+            }
+        else:
+            return {
+                "label": "일부 인용",
+                "badge_html": '<span class="badge-outcome-partial">🟡 일부 인용</span>',
+                "detail": "쟁점별 인용 및 기각 혼재"
+            }
+
+    return {
+        "label": "판단 불명확",
+        "badge_html": '<span class="badge-outcome-unclear">🟠 판단 불명확</span>',
+        "detail": "유권해석 원칙론 또는 사실관계 입증 여하에 따름"
+    }
+
+
+def derive_case_application(case_item: dict, user_query: str = "", facts: dict = None) -> str:
+    """
+    판례의 법리와 사용자의 세무 질의/사실관계를 대조하여 실무 적용 착안점 도출
+    """
+    title = case_item.get("title", "")
+    summary = case_item.get("summary", "") or case_item.get("core_point", "")
+    tax_cat = case_item.get("tax_category", "조세일반")
+    
+    app_notes = []
+    if any(k in title or k in summary for k in ["대손", "회수불능", "폐업", "부도"]):
+        app_notes.append("회수불능 객관적 증빙(폐업사실증명, 재산조사서 등) 구비 시 손금산입 기준 직접 원용 가능.")
+    elif any(k in title or k in summary for k in ["사실과 다른", "세금계산서", "위장", "가공"]):
+        app_notes.append("실제 거래 진실성 및 선의·무과실 입증(계약서, 금융이체증) 시 매입세액공제 소명 근거로 활용.")
+    elif any(k in title or k in summary for k in ["특수관계", "부당행위", "시가", "가지급금"]):
+        app_notes.append("특수관계인 간 적정 시가 평가서 및 이사회 결의서 구비하여 부당행위계산 부인 리스크 차단.")
+    elif any(k in title or k in summary for k in ["접대비", "판매장려금", "광고선전비"]):
+        app_notes.append("사전 약정서 및 지출의 상대방 범위에 따라 판매부대비용 인정 여부 판별의 핵심 기준 제시.")
+    else:
+        app_notes.append(f"{tax_cat} 관련 객관적 거래 증빙 및 법령상 요건 충족 여부에 따라 동일한 판단 취지 적용 가능.")
+
+    return " ".join(app_notes)
+
+
+# ----------------- 다중 판례 비교표 컴포넌트 -----------------
+def render_case_comparison_table(
+    pool_cases: list,
+    user_query: str = "",
+    facts_summary: dict = None,
+    table_id_prefix: str = "search_comp"
+):
+    """
+    유사 판례 비교표 컴포넌트
+    """
+    if not pool_cases or len(pool_cases) < 2:
+        return
+
+    unique_cases = []
+    seen_nos = set()
+    for c in pool_cases:
+        c_no = c.get("case_number") or c.get("prec_id") or ""
+        if c_no and c_no not in seen_nos:
+            seen_nos.add(c_no)
+            unique_cases.append(c)
+        elif not c_no:
+            unique_cases.append(c)
+
+    if len(unique_cases) < 2:
+        return
+
+    selected_case_ids = st.session_state.get("selected_compare_case_ids", set())
+    has_selected_filter = len(selected_case_ids) >= 2
+    view_selected_only_key = f"{table_id_prefix}_view_selected_only"
+    view_selected_only = st.session_state.get(view_selected_only_key, False)
+
+    if view_selected_only and has_selected_filter:
+        display_cases = [c for c in unique_cases if (c.get("case_number") in selected_case_ids or str(c.get("prec_id")) in selected_case_ids)]
+        if len(display_cases) < 1:
+            display_cases = unique_cases
+    else:
+        display_cases = unique_cases
+
+    expand_key = f"{table_id_prefix}_expand_all"
+    is_expanded = st.session_state.get(expand_key, False)
+    
+    limit = len(display_cases) if is_expanded else 5
+    showing_cases = display_cases[:limit]
+
+    st.markdown("""
+    <div style="background:#FFFFFF; border:1.5px solid #005B45; border-radius:10px; padding:16px 20px; margin: 18px 0 16px 0; box-shadow:0 2px 12px rgba(0,91,69,0.06);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:1.15rem; font-weight:800; color:#005B45;">⚖️ 유사 판례 비교표 (Multi-Case Benchmarking)</span>
+                <span style="font-size:0.78rem; font-weight:700; color:#003876; background:#EFF8FF; border:1px solid #B2DDFF; padding:2px 8px; border-radius:12px;">
+                    공식 DB 검증 판례 대조
+                </span>
+            </div>
+            <div style="font-size:0.80rem; color:#64748B;">
+                사건번호·원문 <b>실제 국가법령정보센터 DB 100% 연동</b>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_t_info, col_t_filter, col_t_more = st.columns([3.5, 2.0, 1.5], vertical_alignment="center")
+    with col_t_info:
+        cur_cnt_str = f"전체 <b>{len(display_cases)}건</b> 중 <b>{len(showing_cases)}건</b> 비교 중"
+        if selected_case_ids:
+            cur_cnt_str += f" (체크된 판례: <b style='color:#005B45;'>{len(selected_case_ids)}건</b>)"
+        st.markdown(f"<div style='font-size:0.84rem; color:#334155;'>{cur_cnt_str}</div>", unsafe_allow_html=True)
+
+    with col_t_filter:
+        if has_selected_filter:
+            btn_filter_label = "📋 전체 판례 비교" if view_selected_only else f"✅ 선택 판례만 비교 ({len(selected_case_ids)}건)"
+            if st.button(btn_filter_label, key=f"btn_flt_sel_{table_id_prefix}", use_container_width=True):
+                st.session_state[view_selected_only_key] = not view_selected_only
+                st.rerun()
+        elif selected_case_ids:
+            if st.button("선택 초기화", key=f"btn_reset_sel_{table_id_prefix}", use_container_width=True):
+                st.session_state["selected_compare_case_ids"] = set()
+                st.rerun()
+
+    with col_t_more:
+        if len(display_cases) > 5:
+            more_label = "▲ 상위 5건 축소" if is_expanded else f"▾ 전체 {len(display_cases)}건 비교"
+            if st.button(more_label, key=f"btn_more_{table_id_prefix}", use_container_width=True):
+                st.session_state[expand_key] = not is_expanded
+                st.rerun()
+
+    table_rows_html = []
+    for idx, c in enumerate(showing_cases, 1):
+        c_no = c.get("case_number") or c.get("prec_id") or f"사건_{idx}"
+        c_court = c.get("court", "법원")
+        c_date = c.get("date", "-")
+        c_title = c.get("title", "")
+        c_link = c.get("link", "")
+        c_source = c.get("source", "국가법령정보센터")
+        c_summary = c.get("summary") or c.get("core_point") or c_title
+        
+        outcome = determine_case_outcome(c)
+        outcome_badge = outcome["badge_html"]
+
+        criterion_compact = c_summary[:95] + "..." if len(c_summary) > 95 else c_summary
+        application_text = derive_case_application(c, user_query, facts_summary)
+
+        if c_link:
+            link_html = f'<a href="{c_link}" target="_blank" style="color:#003876; font-weight:700; text-decoration:underline; font-size:0.78rem;">원문 ↗</a>'
+        else:
+            link_html = '<span style="color:#94A3B8; font-size:0.78rem;">-</span>'
+
+        is_chk = (c_no in selected_case_ids or str(c.get("prec_id")) in selected_case_ids)
+        chk_icon = "☑️" if is_chk else f"[{idx}]"
+
+        c_title_clean = c_title.replace('"', '&quot;').replace("'", "&#39;")
+        issue_clamp_html = (
+            f"<div style='display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; line-height:1.45; font-size:0.82rem; font-weight:700; color:#1E293B;' title='{c_title_clean}'>"
+            f"{c_title}"
+            f"</div>"
+        )
+
+        # 🚨 핵심 CSS 수정: word-break: break-all 및 col-no 컬럼 클래스/너비 설정으로 글자 겹침 방지
+        row_html = (
+            f"<tr style='border-bottom:1px solid #F1F5F9;'>"
+            f"<td class='col-chk' style='text-align:center; font-weight:700; color:#005B45; font-size:0.80rem; vertical-align:middle; padding:10px 6px;'>{chk_icon}</td>"
+            f"<td class='col-no' style='font-size:0.82rem; vertical-align:middle; padding:10px 8px; white-space:normal; word-break:break-all;'><b style='color:#0F172A; font-family:Consolas, monospace;'>{c_no}</b><br><span style='font-size:0.75rem; color:#64748B; display:inline-block; margin-top:2px;'>{c_court} · {c_date}</span></td>"
+            f"<td class='col-issue' style='vertical-align:middle; padding:10px 8px; white-space:normal; word-break:keep-all;'>{issue_clamp_html}</td>"
+            f"<td class='col-outcome' style='text-align:center; vertical-align:middle; padding:10px 6px;'>{outcome_badge}</td>"
+            f"<td class='col-criterion' style='font-size:0.80rem; color:#334155; line-height:1.55; vertical-align:middle; padding:10px 8px; white-space:normal; word-break:keep-all;'>{criterion_compact}</td>"
+            f"<td class='col-app' style='font-size:0.80rem; color:#005B45; line-height:1.55; vertical-align:middle; padding:10px 8px; white-space:normal; word-break:keep-all;'><div style='background:#F0FDF4; border:1px solid #DCFCE7; border-radius:6px; padding:6px 8px;'>💡 {application_text}</div></td>"
+            f"<td class='col-link' style='text-align:center; vertical-align:middle; padding:10px 6px;'>{link_html}</td>"
+            f"</tr>"
+        )
+        table_rows_html.append(row_html)
+
+    # 🚨 핵심 CSS 수정: table 태그에 min-width: 1100px; 강제 부여! (이것이 스크롤을 만드는 마법입니다)
+    table_full_html = (
+        f"<style>"
+        f"  div[data-testid='stMarkdownContainer'] table.custom-case-table, "
+        f"  div[data-testid='stMarkdownContainer'] table {{"
+        f"    min-width: 1100px !important;"
+        f"    width: 100% !important;"
+        f"  }}"
+        f"</style>"
+        f"<div style='width:100%; overflow-x:auto; margin:10px 0 14px 0; border:1px solid #E2E8F0; border-radius:8px; background:#FFFFFF;'>"
+        f"<table class='custom-case-table' style='width:100%; min-width:1100px; border-collapse:collapse; font-size:0.82rem;'>"
+        f"<thead>"
+        f"<tr style='background:#F8FAFC; border-bottom:2px solid #CBD5E1; color:#475569;'>"
+        f"<th class='col-chk' style='padding:10px 6px; text-align:center; vertical-align:middle; font-weight:700;'>구분</th>"
+        f"<th class='col-no' style='padding:10px 8px; text-align:left; vertical-align:middle; font-weight:700;'>사건번호 / 선고일자</th>"
+        f"<th class='col-issue' style='padding:10px 8px; text-align:left; vertical-align:middle; font-weight:700;'>핵심 쟁점</th>"
+        f"<th class='col-outcome' style='padding:10px 8px; text-align:center; vertical-align:middle; font-weight:700;'>결론</th>"
+        f"<th class='col-criterion' style='padding:10px 8px; text-align:left; vertical-align:middle; font-weight:700;'>판단 기준 (법리 요지)</th>"
+        f"<th class='col-app' style='padding:10px 8px; text-align:left; vertical-align:middle; font-weight:700;'>우리 상황 적용</th>"
+        f"<th class='col-link' style='padding:10px 6px; text-align:center; vertical-align:middle; font-weight:700;'>원문</th>"
+        f"</tr>"
+        f"</thead>"
+        f"<tbody>{''.join(table_rows_html)}</tbody>"
+        f"</table>"
+        f"</div>"
+    )
+    st.markdown(table_full_html, unsafe_allow_html=True)
+
+    with st.expander("📄 각 판례별 상세 판결 요지 및 심층 법리 펼치기", expanded=False):
+        for idx, sc in enumerate(showing_cases, 1):
+            sc_no = sc.get("case_number") or sc.get("prec_id") or f"사건_{idx}"
+            sc_court = sc.get("court", "법원")
+            sc_date = sc.get("date", "-")
+            sc_title = sc.get("title", "")
+            sc_summary = sc.get("summary") or sc.get("core_point") or "등록된 요지 정보 없음"
+            sc_link = sc.get("link", "")
+            sc_outcome = determine_case_outcome(sc)
+
+            item_card_html = (
+                f"<div style='background:#F8FAFC; border:1px solid #E2E8F0; border-radius:8px; padding:12px 16px; margin-bottom:10px;'>"
+                f"<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;'>"
+                f"<div>"
+                f"<span style='font-weight:700; color:#0F172A; font-size:0.88rem;'>[{idx}] {sc_court} {sc_no}</span>"
+                f"<span style='font-size:0.78rem; color:#64748B; margin-left:6px;'>(선고일자: {sc_date})</span>"
+                f"</div>"
+                f"<div>{sc_outcome['badge_html']}</div>"
+                f"</div>"
+                f"<div style='font-size:0.84rem; font-weight:600; color:#003876; margin-bottom:6px;'>사건명: {sc_title}</div>"
+                f"<div style='font-size:0.82rem; color:#334155; line-height:1.6; background:#FFFFFF; border:1px solid #E2E8F0; padding:8px 12px; border-radius:6px; margin-bottom:8px;'>"
+                f"<b>판결/회신 요지:</b><br>{sc_summary}"
+                f"</div>"
+                f"<div style='font-size:0.80rem; color:#005B45;'>"
+                f"<b>실무 적용 착안점:</b> {derive_case_application(sc, user_query, facts_summary)}"
+                f"</div>"
+                f"</div>"
+            )
+            st.markdown(item_card_html, unsafe_allow_html=True)
+            if sc_link:
+                st.link_button(f"🌐 {sc_no} 국가법령정보센터 원문 보기 ↗", sc_link, key=f"btn_link_dt_{table_id_prefix}_{idx}")
+
+
+# ----------------- 클립보드 텍스트 빌더 -----------------
+def build_clipboard_text(case_item: dict, summary_res: dict) -> str:
+    title = case_item.get('title', '')
+    case_no = case_item.get('case_number', '')
+    court = case_item.get('court', '')
+    date_str = case_item.get('date', '')
+    link = case_item.get('link', '')
+
+    legal_basis = summary_res.get('legal_basis', '').strip()
+    tax_office_view = summary_res.get('tax_office_view', '').strip()
+    taxpayer_view = summary_res.get('taxpayer_view', '').strip()
+    court_decision = summary_res.get('court_decision', '').strip()
+    actionable = summary_res.get('actionable_takeaway', '').strip()
+
+    text = f"""[CJ프레시웨이 세무 검토 의견 요약]
+■ 사건 기본 정보
+- 사건명: {title}
+- 사건번호: {case_no} ({court}, {date_str} 선고/결정)
+- 원문 링크: {link}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. 관련 세법 조항 및 핵심 쟁점
+{legal_basis}
+
+2. 과세관청(국세청) 과세 논거
+{tax_office_view}
+
+3. 납세자 방어 논리
+{taxpayer_view}
+
+4. 법원 / 심판원 최종 판단 기준
+{court_decision}
+
+5. 회계·세무팀 실무 액션 플랜 & 필수 증빙 체크리스트
+{actionable}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+* 출처: CJ프레시웨이 TAX AI 비서 (국가법령정보센터 DB & Gemini AI 분석)
+"""
+    return text.strip()
+
+
+def build_ruling_clipboard_text(case_item: dict, ruling_data: dict) -> str:
+    title = case_item.get('title', '')
+    case_no = case_item.get('case_number', '')
+    court = case_item.get('court', '')
+    date_str = case_item.get('date', '')
+    link = case_item.get('link', '')
+
+    summary = ruling_data.get('summary', '').strip()
+    points = ruling_data.get('points', '').strip()
+    articles = ruling_data.get('ref_articles', '').strip()
+
+    text = f"""[공식 세무 판결·예규 요지 요약]
+■ 사건명: {title}
+■ 사건번호: {case_no} ({court}, {date_str} 선고/결정)
+■ 원문 링크: {link}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. 판결·예규 요지 (판단 기준)
+{summary}
+
+2. 판시사항 및 주요 쟁점
+{points}
+
+3. 관련 세법 조항 / 참조조문
+{articles}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+* 출처: 국가법령정보센터 DB & CJ프레시웨이 TAX AI 비서
+"""
+    return text.strip()
+
+
+# ----------------- 개별 판례/예규 카드 컴포넌트 -----------------
+def render_case_card(item: dict, idx: int, prefix: str = "search"):
+    """
+    개별 판례/예규 카드
+    """
+    court = item.get("court", "법원")
+    case_no = item.get("case_number", "")
+    date_str = item.get("date", "")
+    source = item.get("source", "")
+    title = item.get("title", "")
+    link = item.get("link", "")
+    tax_cat = item.get("tax_category", "조세일반")
+    case_id = case_no or item.get("prec_id", f"{prefix}_{idx}")
+    is_saved = case_id in st.session_state["saved_cases"]
+
+    if tax_cat == "법인세":
+        tax_badge_html = '<span class="tax-badge tax-corp">🏢 법인세</span>'
+    elif tax_cat == "부가가치세":
+        tax_badge_html = '<span class="tax-badge tax-vat">🧾 부가가치세</span>'
+    elif tax_cat == "소득세·원천세":
+        tax_badge_html = '<span class="tax-badge tax-income">👤 소득세·원천세</span>'
+    elif tax_cat == "상속·증여세":
+        tax_badge_html = '<span class="tax-badge tax-etc">🎁 상속·증여세</span>'
+    else:
+        tax_badge_html = f'<span class="tax-badge tax-etc">⚖️ {tax_cat}</span>'
+
+    court_badge_html = f'<span class="case-badge-court">{court}</span>' if ("법원" in court or "대법원" in court) else f'<span class="case-badge-nts">{court}</span>'
+
+    is_verified = item.get("is_verified", True)
+    if is_verified:
+        verified_badge_html = "<span class='badge-risk-low' style='font-size:0.75rem; padding:2px 7px;'>✔ 공식 DB 검증</span>"
+    else:
+        verified_badge_html = "<span class='badge-risk-high' style='font-size:0.75rem; padding:2px 7px;'>⚠️ 미확인 판례 배제</span>"
+
+    rel_score = item.get("relevance_score")
+    if rel_score is not None:
+        if rel_score >= 80:
+            rel_badge_html = f"<span style='background:#DCFCE7; color:#166534; border:1px solid #86EFAC; font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:12px;'>⭐ 관련도 {rel_score}점 (최고 일치)</span>"
+        elif rel_score >= 50:
+            rel_badge_html = f"<span style='background:#FEF3C7; color:#92400E; border:1px solid #FCD34D; font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:12px;'>⚡ 관련도 {rel_score}점 (유사 판례)</span>"
+        else:
+            rel_badge_html = f"<span style='background:#F1F5F9; color:#64748B; border:1px solid #CBD5E1; font-size:0.75rem; font-weight:600; padding:2px 8px; border-radius:12px;'>관련도 {rel_score}점 (참고용)</span>"
+    else:
+        rel_badge_html = ""
+
+    # 근거 유형 배지 (직접근거 후보 / 보조근거 후보 / 참고자료)
+    basis_type = item.get("basis_type", "")
+    if basis_type == "직접근거 후보":
+        basis_type_badge = "<span style='background:#EFF8FF; color:#175CD3; border:1px solid #B2DDFF; font-size:0.74rem; font-weight:700; padding:2px 7px; border-radius:12px;'>🎯 직접근거 후보</span>"
+    elif basis_type == "보조근거 후보":
+        basis_type_badge = "<span style='background:#F8F9FA; color:#344054; border:1px solid #D0D5DD; font-size:0.74rem; font-weight:600; padding:2px 7px; border-radius:12px;'>📎 보조근거 후보</span>"
+    elif basis_type == "참고자료":
+        basis_type_badge = "<span style='background:#F4F3FF; color:#5925DC; border:1px solid #D9D6FE; font-size:0.74rem; font-weight:600; padding:2px 7px; border-radius:12px;'>📚 참고자료</span>"
+    else:
+        basis_type_badge = ""
+
+    matched_kws = item.get("matched_keywords", [])
+    if matched_kws:
+        matched_kws_chips = "".join([f"<span style='background:#EFF6FF; color:#1D4ED8; font-size:0.74rem; font-weight:600; padding:1px 6px; border-radius:4px; margin-right:4px;'>#{kw}</span>" for kw in matched_kws[:4]])
+        kws_html = f"<div style='margin-top:4px; display:flex; align-items:center; flex-wrap:wrap; gap:3px;'><span style='font-size:0.75rem; color:#64748B; font-weight:600;'>매칭 키워드:</span> {matched_kws_chips}</div>"
+    else:
+        kws_html = ""
+
+    match_reason = item.get("match_reason", "")
+    if match_reason:
+        reason_html = f"<div style='margin-top:3px; font-size:0.76rem; color:#475569; background:#F8FAFC; border-left:2.5px solid #005B45; padding:3px 8px; border-radius:0 4px 4px 0;'>💡 <b>선정 근거:</b> {match_reason}</div>"
+    else:
+        reason_html = ""
+
+    saved_badge_html = "<span class='badge-risk-med' style='font-size:0.75rem; padding:2px 7px;'>★ 보관됨</span>" if is_saved else ""
+
+    toggle_key = f"{prefix}_toggle_state_{idx}_{case_id}"
+    gist_key = f"{prefix}_gist_state_{idx}_{case_id}"
+    is_open = st.session_state.get(toggle_key, False)
+    is_gist_open = st.session_state.get(gist_key, False)
+    
+    is_focused = is_open or is_gist_open
+    focused_cls = " case-focused" if is_focused else ""
+
+    with st.container():
+        card_html = (
+            f'<div class="case-container{focused_cls}">'
+            f'<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">'
+            f'<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">'
+            f'{tax_badge_html} {court_badge_html} {basis_type_badge} {rel_badge_html} {verified_badge_html} {saved_badge_html}'
+            f'<span style="font-size:0.86rem; color:#475569; font-family:Consolas, monospace; font-weight:700; margin-left:4px;">{case_no}</span>'
+            f'</div>'
+            f'<div style="color:#64748B; font-size:0.80rem;">선고/결정 {date_str}</div>'
+            f'</div>'
+            f'<div class="case-title">{title}</div>'
+            f'{kws_html}'
+            f'{reason_html}'
+            f'<div style="display:flex; justify-content:space-between; align-items:center; margin-top:5px;">'
+            f'<span style="font-size:0.80rem; color:#64748B;">출처: {source}</span>'
+            f'</div>'
+            f'</div>'
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
+
+        st.markdown('<div class="card-actions">', unsafe_allow_html=True)
+        col_chk, col_link, col_save, col_gist, col_toggle = st.columns([1.2, 1.0, 1.2, 1.4, 1.6], vertical_alignment="center")
+
+        with col_chk:
+            selected_comp = st.session_state.get("selected_compare_case_ids", set())
+            is_comp_selected = (case_no in selected_comp or str(item.get("prec_id")) in selected_comp)
+            chk_compare = st.checkbox("비교 선택", value=is_comp_selected, key=f"chk_comp_{prefix}_{idx}_{case_id}")
+            if chk_compare != is_comp_selected:
+                target_key = case_no if case_no else str(item.get("prec_id"))
+                if chk_compare:
+                    selected_comp.add(target_key)
+                else:
+                    selected_comp.discard(target_key)
+                st.session_state["selected_compare_case_ids"] = selected_comp
+                st.rerun()
+
+        with col_link:
+            if link:
+                st.link_button("🌐 원문 ↗", link, use_container_width=True, key=f"btn_link_{prefix}_{idx}_{case_id}")
+            else:
+                st.button("원문 미제공", disabled=True, use_container_width=True, key=f"btn_nolink_{prefix}_{idx}_{case_id}")
+
+
+        with col_save:
+            btn_save_label = "★ 보관 해제" if is_saved else "☆ 사례 보관"
+            if st.button(btn_save_label, key=f"btn_save_{prefix}_{idx}_{case_id}", use_container_width=True):
+                if is_saved:
+                    del st.session_state["saved_cases"][case_id]
+                    save_saved_cases(st.session_state["saved_cases"])
+                    st.toast(f"보관함에서 삭제되었습니다: {case_no}", icon="🗑️")
+                    st.rerun()
+                else:
+                    is_dup, dup_msg, dup_id = check_duplicate_case(st.session_state["saved_cases"], case_no, item.get("title",""), case_id)
+                    if is_dup:
+                        st.warning(f"⚠️ {dup_msg}")
+                        
+                    analysis_key = f"gemini_data_{prefix}_{idx}_{item.get('prec_id')}_{case_no}"
+                    if analysis_key in st.session_state:
+                        summary_res = st.session_state[analysis_key]
+                    else:
+                        with st.spinner("AI 심층 리포트를 생성하여 보관함에 등록합니다..."):
+                            summary_res = summarize_case(item)
+                            st.session_state[analysis_key] = summary_res
+                    
+                    saved_item = dict(item)
+                    saved_item["case_id"] = case_id
+                    saved_item["review_status"] = "검토중"
+                    saved_item["risk_level"] = "중립/유의"
+                    saved_item["issue_tags"] = [item.get("tax_category", "조세일반"), item.get("court", "법원")]
+                    saved_item["user_query"] = item.get("title", "")
+                    saved_item["user_memo"] = ""
+                    saved_item["created_at"] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')
+                    saved_item["updated_at"] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')
+                    saved_item["facts_summary"] = {
+                        "tax_category": item.get("tax_category", "조세일반"),
+                        "trans_type": item.get("title", ""),
+                        "counterparty": item.get("court", ""),
+                        "amount": "판결문 참조",
+                        "tax_period": item.get("date", ""),
+                        "evidence_held": "공식 판결/예규 원문",
+                        "purpose": "판례 분석 및 실무 검토"
+                    }
+                    saved_item["legal_references"] = [{
+                        "type": "판례/예규",
+                        "title": item.get("title", ""),
+                        "case_number": case_no,
+                        "court": court,
+                        "date": date_str,
+                        "link": link,
+                        "source": source,
+                        "prec_id": item.get("prec_id", "")
+                    }]
+                    saved_item["ai_opinion"] = {
+                        "basis_strength": "유의 필요",
+                        "basis_rationale": "법원/심판원 공식 판단 기준",
+                        "conclusion": summary_res.get("legal_basis", "") or summary_res.get("court_decision", ""),
+                        "case_comparison": summary_res.get("court_decision", ""),
+                        "checklist": summary_res.get("actionable_takeaway", "")
+                    }
+                    saved_item["ai_summary"] = summary_res
+                    saved_item["saved_at"] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')
+                    
+                    st.session_state["saved_cases"][case_id] = saved_item
+                    save_saved_cases(st.session_state["saved_cases"])
+                    st.toast(f"📁 세무검토 사례 카드로 저장되었습니다! ({case_no})", icon="⭐")
+                    st.rerun()
+
+        with col_gist:
+            btn_gist_text = f"▲ 요지 닫기" if is_gist_open else f"📄 판결 요지 ▾"
+            if st.button(btn_gist_text, key=f"btn_gist_{prefix}_{idx}_{case_no}", use_container_width=True):
+                st.session_state[gist_key] = not is_gist_open
+                st.rerun()
+
+        with col_toggle:
+            btn_text = f"▲ AI 검토 닫기" if is_open else f"✨ AI 심층 검토 ▾"
+            if st.button(btn_text, key=f"btn_toggle_{prefix}_{idx}_{case_no}", use_container_width=True, type="primary"):
+                st.session_state[toggle_key] = not is_open
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        if is_gist_open:
+            ruling_cache_key = f"ruling_detail_{case_id}"
+            if ruling_cache_key in st.session_state:
+                ruling_data = st.session_state[ruling_cache_key]
+            else:
+                if item.get("summary") and len(item.get("summary", "")) > 15:
+                    ruling_data = {
+                        "summary": item.get("summary", ""),
+                        "points": item.get("title", ""),
+                        "ref_articles": item.get("tax_category", ""),
+                        "order": "",
+                        "source_type": f"{source} ({court})"
+                    }
+                else:
+                    with st.spinner("공식 판결/예규 요지 및 판시사항을 조회 중입니다..."):
+                        prec_id = item.get("prec_id", "")
+                        raw_detail = fetch_prec_detail(prec_id) if prec_id else {}
+                        if raw_detail.get("has_detail"):
+                            ruling_data = {
+                                "summary": raw_detail.get("summary") or item.get("title", ""),
+                                "points": raw_detail.get("points") or item.get("title", ""),
+                                "ref_articles": raw_detail.get("ref_articles") or "",
+                                "order": raw_detail.get("order") or "",
+                                "source_type": f"국가법령정보센터 ({raw_detail.get('court') or court})"
+                            }
+                        else:
+                            ai_ruling = generate_ruling_summary(item)
+                            ruling_data = {
+                                "summary": ai_ruling.get("summary") or item.get("title", ""),
+                                "points": ai_ruling.get("points") or item.get("title", ""),
+                                "ref_articles": ai_ruling.get("ref_articles") or "",
+                                "order": "",
+                                "source_type": f"국세법령정보시스템 & AI 공인 요약 ({court})"
+                            }
+                st.session_state[ruling_cache_key] = ruling_data
+
+            ruling_clip_text = build_ruling_clipboard_text(item, ruling_data)
+            ruling_cp_id = f"cp_gist_{prefix}_{idx}_{abs(hash(case_no))}"
+
+            st.markdown(f"""
+            <div class="ruling-summary-box">
+                <div class="ruling-header">
+                    <div class="ruling-badge">
+                        <span>📜</span>
+                        <span>공식 판결·예규 요지 ({ruling_data.get('source_type', '공식 요지')})</span>
+                    </div>
+                    <div style="font-size:0.82rem; color:#64748B;">선고/결정: <b>{date_str}</b> | 사건번호: <b>{case_no}</b></div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            col_r_body, col_r_btn = st.columns([3.8, 1.2], vertical_alignment="center")
+            with col_r_body:
+                st.markdown(f"<div style='font-size:0.86rem; color:#475569; font-weight:600;'>사건명: {title}</div>", unsafe_allow_html=True)
+            with col_r_btn:
+                render_copy_button(ruling_clip_text, ruling_cp_id)
+
+            summary_txt = ruling_data.get("summary", "")
+            if summary_txt:
+                st.markdown(f"""
+                <div class="ruling-section-title">⚖️ 1. 판결·예규 요지 및 판단 기준</div>
+                <div class="ruling-text">{summary_txt}</div>
+                """, unsafe_allow_html=True)
+
+            points_txt = ruling_data.get("points", "")
+            if points_txt and points_txt != summary_txt:
+                st.markdown(f"""
+                <div class="ruling-section-title">📌 2. 판시사항 및 핵심 쟁점</div>
+                <div class="ruling-text">{points_txt}</div>
+                """, unsafe_allow_html=True)
+
+            order_txt = ruling_data.get("order", "")
+            if order_txt:
+                st.markdown(f"""
+                <div class="ruling-section-title">⚖️ 3. 주문 (Order)</div>
+                <div class="ruling-text" style="font-weight:600; color:#003876;">{order_txt}</div>
+                """, unsafe_allow_html=True)
+
+            ref_txt = ruling_data.get("ref_articles", "")
+            if ref_txt:
+                article_pills = "".join([f'<span class="ruling-article-tag">{art.strip()}</span>' for art in ref_txt.replace('/', ',').split(',') if art.strip()])
+                st.markdown(f"""
+                <div class="ruling-section-title" style="margin-top:10px;">📖 4. 관련 세법 조항 및 참조 조문</div>
+                <div style="margin-top:4px;">{article_pills}</div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        if is_open:
+            analysis_key = f"gemini_data_{prefix}_{idx}_{item.get('prec_id')}_{case_no}"
+            
+            if analysis_key not in st.session_state:
+                with st.spinner("Gemini AI가 세무 쟁점 및 증빙 체크리스트를 분석 중입니다..."):
+                    summary_res = summarize_case(item)
+                    st.session_state[analysis_key] = summary_res
+            else:
+                summary_res = st.session_state[analysis_key]
+
+            clip_text = build_clipboard_text(item, summary_res)
+            btn_id = f"cp_{prefix}_{idx}_{abs(hash(case_no))}"
+            
+            col_rep_title, col_rep_btn = st.columns([3, 2], vertical_alignment="center")
+            with col_rep_title:
+                saved_flag_html = " <span class='vault-saved-badge'>★ 보관함 보관 중</span>" if is_saved else ""
+                st.markdown(f"<div style='font-size:0.95rem; font-weight:700; color:#005B45; margin: 8px 0;'>📊 Gemini AI 심층 세무 검토 의견{saved_flag_html}</div>", unsafe_allow_html=True)
+            with col_rep_btn:
+                render_copy_button(clip_text, btn_id)
+
+            st.markdown(f"""
+            <div class="notion-block nb-cjblue">
+                <div class="notion-icon">📋</div>
+                <div class="notion-body">
+                    <div class="notion-title">관련 세법 조항 및 핵심 쟁점</div>
+                    {format_notion_content(summary_res.get('legal_basis', ''))}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col_gov, col_taxpayer = st.columns(2)
+            with col_gov:
+                st.markdown(f"""
+                <div class="notion-block nb-orange">
+                    <div class="notion-icon">🏢</div>
+                    <div class="notion-body">
+                        <div class="notion-title">과세관청(국세청) 과세 논거</div>
+                        {format_notion_content(summary_res.get('tax_office_view', ''))}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_taxpayer:
+                st.markdown(f"""
+                <div class="notion-block nb-gray">
+                    <div class="notion-icon">👤</div>
+                    <div class="notion-body">
+                        <div class="notion-title">납세자 방어 논리</div>
+                        {format_notion_content(summary_res.get('taxpayer_view', ''))}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown(f"""
+            <div class="notion-block nb-gray">
+                <div class="notion-icon">⚖️</div>
+                <div class="notion-body">
+                    <div class="notion-title">법원 / 심판원 최종 판단 기준</div>
+                    {format_notion_content(summary_res.get('court_decision', ''))}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown(f"""
+            <div class="notion-block nb-green">
+                <div class="notion-icon">💼</div>
+                <div class="notion-body">
+                    <div class="notion-title">회계·세무팀 실무 액션 플랜 & 필수 증빙 체크리스트</div>
+                    {format_notion_content(summary_res.get('actionable_takeaway', ''))}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            with st.expander("📄 사내 보고용 텍스트 전문 미리보기 & 직접 복사", expanded=False):
+                st.markdown("<div style='font-size:0.84rem; color:#64748B; margin-bottom:6px;'>※ 우측 상단의 복사 아이콘(📋)을 클릭하거나 전체 선택(Ctrl+A)하여 사내 메신저나 이메일에 바로 붙여넣기 하실 수 있습니다.</div>", unsafe_allow_html=True)
+                st.code(clip_text, language="markdown")
+
+        st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)

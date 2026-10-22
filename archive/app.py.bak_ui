@@ -1,0 +1,3431 @@
+# -*- coding: utf-8 -*-
+"""
+CJ프레시웨이(CJ Freshway) 세무·조세 판례 실시간 검색 및 Gemini AI 분석 비서
+- CJ CI/BI 컬러 팔레트 완벽 적용: CJ 딥 블루 (#003876) & CJ 시그니처 레드 (#E61E2B)
+- 네이버 클로바 일체형 검색 + 노션 콜아웃 리포트
+- 칼각 수평 버튼 정렬 + 마크다운 기호(**) 자동 변환
+"""
+import streamlit as st
+import streamlit.components.v1 as components
+import pandas as pd
+import io
+import os
+import re
+import json
+import config
+from storage import load_saved_cases, save_saved_cases, check_duplicate_case, update_case_memo_and_status, VALID_REVIEW_STATUSES, VALID_RISK_LEVELS
+from law_api import search_real_law_data, search_real_law_data_multi, fetch_prec_detail
+from summarizer import (summarize_case, analyze_tax_situation, generate_situation_briefing, generate_ruling_summary,
+    format_report_summary, format_report_opinion, format_report_detailed)
+from tax_relations import TaxRelationEngine
+from vat_penalty import VatPenaltyEngine
+from tax_manual_data import MANUAL_CATEGORIES, WIZARDS, TEMPLATES
+from tax_account_master import ACCOUNTS_DATA, ACCOUNT_CATEGORIES
+
+
+st.set_page_config(
+    page_title="CJ프레시웨이 세무 판례 AI 비서",
+    page_icon="⚖️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ----------------- 마크다운(**, ####, ```) 기호 -> HTML 변환 -----------------
+def format_notion_content(text: str) -> str:
+    if not text:
+        return ""
+    
+    # 1. 코드 블록(```text ... ```)을 먼저 임시 플레이스홀더로 치환하여 인라인 파서 간섭 차단
+    code_blocks = []
+    def code_replacer(match):
+        code_content = match.group(2).strip()
+        code_blocks.append(code_content)
+        return f"\n___CODE_BLOCK_{len(code_blocks)-1}___\n"
+
+    # ```lang\ncode\n``` 또는 ```code```
+    processed = re.sub(r'```([a-zA-Z0-9_-]*)\n?(.*?)```', code_replacer, text, flags=re.DOTALL)
+
+    # 2. 인라인 볼드 (**단어**)
+    processed = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#0F172A; font-weight:700;">\1</strong>', processed)
+
+    # 3. 인라인 코드 (`코드`)
+    processed = re.sub(r'`([^`]+)`', r'<code style="background:#F1F5F9; color:#005B45; padding:2px 6px; border-radius:4px; font-size:0.88em; font-family:monospace;">\1</code>', processed)
+
+    lines = processed.split("\n")
+    output_lines = []
+    
+    for line in lines:
+        s = line.strip()
+        if not s:
+            continue
+        
+        # 플레이스홀더 복원 (코드 블록 -> 회계 전표 / 세무 서식 박스)
+        placeholder_match = re.match(r'^___CODE_BLOCK_(\d+)___$', s)
+        if placeholder_match:
+            idx = int(placeholder_match.group(1))
+            code_text = code_blocks[idx]
+            escaped_code = (
+                code_text.replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+                .replace('\n', '<br>')
+            )
+            output_lines.append(
+                f'<div style="background:#F8FAFC; border:1px solid #CBD5E1; border-left:4px solid #005B45; padding:10px 14px; border-radius:6px; font-family:\'Pretendard\', monospace; font-size:0.88rem; color:#1E293B; margin:8px 0; line-height:1.6;">{escaped_code}</div>'
+            )
+            continue
+            
+        # 헤딩 (####, ###, ##, #)
+        if s.startswith("#### "):
+            output_lines.append(f'<div style="font-size:0.96rem; font-weight:700; color:#004D3A; margin:14px 0 6px 0;">📌 {s[5:]}</div>')
+        elif s.startswith("### "):
+            output_lines.append(f'<div style="font-size:1.02rem; font-weight:700; color:#004D3A; margin:16px 0 8px 0;">📌 {s[4:]}</div>')
+        elif s.startswith("## "):
+            output_lines.append(f'<div style="font-size:1.1rem; font-weight:800; color:#004D3A; margin:18px 0 10px 0;">📌 {s[3:]}</div>')
+        # 불릿 목록 (* , - , • )
+        elif s.startswith("* ") or s.startswith("- ") or s.startswith("• "):
+            content = s[2:].strip()
+            output_lines.append(f'<div style="margin-left:6px; line-height:1.6;"><span style="color:#005B45; font-weight:bold;">•</span> {content}</div>')
+        # 번호 목록 (1. , 2. )
+        elif re.match(r'^\d+\.\s+', s):
+            num_match = re.match(r'^(\d+\.)\s+(.*)', s)
+            if num_match:
+                output_lines.append(f'<div style="margin-left:6px; line-height:1.6;"><span style="color:#005B45; font-weight:700;">{num_match.group(1)}</span> {num_match.group(2)}</div>')
+            else:
+                output_lines.append(f'<div style="line-height:1.6;">{s}</div>')
+        # 구분선
+        elif s == "---":
+            output_lines.append('<hr style="border:none; border-top:1px solid #E2E8F0; margin:12px 0;">')
+        else:
+            output_lines.append(f'<div style="line-height:1.6;">{s}</div>')
+
+    return "".join(output_lines)
+
+
+# ----------------- 원클릭 복사 버튼 컴포넌트 (애니메이션 탑재) -----------------
+def render_copy_button(clip_text: str, key_id: str):
+    json_text = json.dumps(clip_text, ensure_ascii=False)
+    html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <style>
+      body {{ margin: 0; padding: 0; background: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+      .copy-btn {{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background-color: #FFFFFF;
+        border: 1px solid #CBD5E1;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #334155;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }}
+      .copy-btn:hover {{
+        background-color: #F8FAFC;
+        border-color: #005B45;
+        color: #005B45;
+      }}
+      .copy-btn.copied {{
+        background-color: #ECFDF5;
+        border-color: #059669;
+        color: #059669;
+      }}
+      .btn-icon {{ font-size: 0.95rem; }}
+    </style>
+    </head>
+    <body>
+    <button class="copy-btn" id="btn_{key_id}" onclick="copyReport()">
+      <span class="btn-icon" id="icon_{key_id}">📋</span>
+      <span id="label_{key_id}">사내 보고용 텍스트 복사</span>
+    </button>
+
+    <script>
+    const reportText = {json_text};
+
+    function copyReport() {{
+      const btn = document.getElementById('btn_{key_id}');
+      const icon = document.getElementById('icon_{key_id}');
+      const label = document.getElementById('label_{key_id}');
+
+      function showCopied() {{
+        btn.classList.add('copied');
+        icon.textContent = '✓';
+        label.textContent = '복사 완료!';
+        
+        setTimeout(() => {{
+          btn.classList.remove('copied');
+          icon.textContent = '📋';
+          label.textContent = '사내 보고용 텍스트 복사';
+        }}, 2200);
+      }}
+
+      try {{
+        const ta = document.createElement('textarea');
+        ta.value = reportText;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (success) {{
+          showCopied();
+          return;
+        }}
+      }} catch (e) {{}}
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {{
+        navigator.clipboard.writeText(reportText).then(showCopied).catch(e => {{
+          window.parent.postMessage({{type: 'copy', text: reportText}}, '*');
+          showCopied();
+        }});
+      }}
+    }}
+    </script>
+    </body>
+    </html>
+    """
+    st.components.v1.html(html_code, height=44)
+
+
+def render_case_card(item: dict, idx: int, prefix: str = "search"):
+    """
+    개별 판례/예규 카드를 일관된 UI, 원문 링크, 보관함 담기, 판결요지 및 AI 심층 리포트 토글과 함께 렌더링
+    """
+    court = item.get("court", "법원")
+    case_no = item.get("case_number", "")
+    date_str = item.get("date", "")
+    source = item.get("source", "")
+    title = item.get("title", "")
+    link = item.get("link", "")
+    tax_cat = item.get("tax_category", "조세일반")
+    case_id = case_no or item.get("prec_id", f"{prefix}_{idx}")
+    is_saved = case_id in st.session_state["saved_cases"]
+
+    court_badge_html = f'<span class="case-badge-court">{court}</span>' if "법원" in court or "대법원" in court else f'<span class="case-badge-nts">{court}</span>'
+
+    if tax_cat == "법인세":
+        tax_badge_html = '<span class="tax-badge tax-corp">🏢 법인세</span>'
+    elif tax_cat == "부가가치세":
+        tax_badge_html = '<span class="tax-badge tax-vat">🧾 부가가치세</span>'
+    elif tax_cat == "소득세·원천세":
+        tax_badge_html = '<span class="tax-badge tax-income">👤 소득세·원천세</span>'
+    elif tax_cat == "상속·증여세":
+        tax_badge_html = '<span class="tax-badge tax-etc">🎁 상속·증여세</span>'
+    else:
+        tax_badge_html = f'<span class="tax-badge tax-etc">⚖️ {tax_cat}</span>'
+
+    saved_badge_html = "<span class='vault-saved-badge'>★ 보관됨</span>" if is_saved else ""
+    is_verified = item.get("is_verified", True)
+    if is_verified:
+        verified_badge_html = "<span style='font-size:0.75rem; font-weight:700; color:#065F46; background:#ECFDF5; border:1px solid #A7F3D0; padding:2px 7px; border-radius:4px;'>✔ 공식 DB 검증 완료</span>"
+    else:
+        verified_badge_html = "<span style='font-size:0.75rem; font-weight:700; color:#991B1B; background:#FEF2F2; border:1px solid #FCA5A5; padding:2px 7px; border-radius:4px;'>⚠️ 검색된 공식 DB 결과 내에서 확인되지 않음</span>"
+    toggle_key = f"{prefix}_toggle_state_{idx}_{case_id}"
+    gist_key = f"{prefix}_gist_state_{idx}_{case_id}"
+    is_open = st.session_state.get(toggle_key, False)
+    is_gist_open = st.session_state.get(gist_key, False)
+    
+    is_focused = is_open or is_gist_open
+    focused_cls = " case-focused" if is_focused else ""
+    focus_badge_html = "<span class='case-focus-badge'>🔍 집중 검토 중</span>" if is_focused else ""
+
+    with st.container():
+        card_html = (
+            f'<div class="case-container{focused_cls}">'
+            f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+            f'<div style="display:flex; align-items:center; gap:8px;">'
+            f'{tax_badge_html} {court_badge_html} {verified_badge_html} {focus_badge_html}'
+            f'<span style="font-size:0.84rem; color:#64748B; font-family:monospace;">{case_no}</span> '
+            f'{saved_badge_html}'
+            f'</div>'
+            f'<div style="color:#94A3B8; font-size:0.82rem;">선고/결정 {date_str}</div>'
+            f'</div>'
+            f'<div class="case-title">{title}</div>'
+            f'<div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">'
+            f'<span style="font-size:0.82rem; color:#94A3B8;">출처: {source}</span>'
+            f'</div>'
+            f'</div>'
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
+
+        # 칼각 정렬된 액션 버튼 영역 (원문 1.0 | 보관함 1.2 | 판결/예규요지 1.8 | AI리포트 2.0)
+        st.markdown('<div class="card-actions">', unsafe_allow_html=True)
+        col_link, col_save, col_gist, col_toggle = st.columns([1.0, 1.2, 1.8, 2.0], vertical_alignment="center")
+        
+        with col_link:
+            if link:
+                st.link_button("🌐 원문 ↗", link, use_container_width=True)
+
+        with col_save:
+            btn_save_label = "★ 보관 해제" if is_saved else "☆ 사례 보관"
+            if st.button(btn_save_label, key=f"btn_save_{prefix}_{idx}_{case_id}", use_container_width=True):
+                if is_saved:
+                    del st.session_state["saved_cases"][case_id]
+                    save_saved_cases(st.session_state["saved_cases"])
+                    st.toast(f"보관함에서 삭제되었습니다: {case_no}", icon="🗑️")
+                    st.rerun()
+                else:
+                    # 중복 검사
+                    is_dup, dup_msg, dup_id = check_duplicate_case(st.session_state["saved_cases"], case_no, item.get("title",""), case_id)
+                    if is_dup:
+                        st.warning(f"⚠️ {dup_msg}")
+                        
+                    analysis_key = f"gemini_data_{prefix}_{idx}_{item.get('prec_id')}_{case_no}"
+                    if analysis_key in st.session_state:
+                        summary_res = st.session_state[analysis_key]
+                    else:
+                        with st.spinner("AI 심층 리포트를 함께 생성하여 사례 카드로 보관합니다..."):
+                            summary_res = summarize_case(item)
+                            st.session_state[analysis_key] = summary_res
+                    
+                    saved_item = dict(item)
+                    saved_item["case_id"] = case_id
+                    saved_item["review_status"] = "검토중"
+                    saved_item["risk_level"] = "중립/유의"
+                    saved_item["issue_tags"] = [item.get("tax_category", "조세일반"), item.get("court", "법원")]
+                    saved_item["user_query"] = item.get("title", "")
+                    saved_item["user_memo"] = ""
+                    saved_item["created_at"] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')
+                    saved_item["updated_at"] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')
+                    saved_item["facts_summary"] = {
+                        "tax_category": item.get("tax_category", "조세일반"),
+                        "trans_type": item.get("title", ""),
+                        "counterparty": item.get("court", ""),
+                        "amount": "판결문 참조",
+                        "tax_period": item.get("date", ""),
+                        "evidence_held": "공식 판결/예규 원문",
+                        "purpose": "판례 분석 및 실무 검토"
+                    }
+                    saved_item["legal_references"] = [{
+                        "type": "판례/예규",
+                        "title": item.get("title", ""),
+                        "case_number": case_no,
+                        "court": court,
+                        "date": date_str,
+                        "link": link,
+                        "source": source,
+                        "prec_id": item.get("prec_id", "")
+                    }]
+                    saved_item["ai_opinion"] = {
+                        "basis_strength": "유의 필요",
+                        "basis_rationale": "법원/심판원 공식 판단 기준",
+                        "conclusion": summary_res.get("legal_basis", "") or summary_res.get("court_decision", ""),
+                        "case_comparison": summary_res.get("court_decision", ""),
+                        "checklist": summary_res.get("actionable_takeaway", "")
+                    }
+                    saved_item["ai_summary"] = summary_res
+                    saved_item["saved_at"] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')
+                    
+                    st.session_state["saved_cases"][case_id] = saved_item
+                    save_saved_cases(st.session_state["saved_cases"])
+                    st.toast(f"📁 세무검토 사례 카드로 저장되었습니다! ({case_no})", icon="⭐")
+                    st.rerun()
+
+        with col_gist:
+            btn_gist_text = f"▲ 판결·예규 요지 닫기" if is_gist_open else f"📄 판결·예규 요지 ▾"
+            if st.button(btn_gist_text, key=f"btn_gist_{prefix}_{idx}_{case_no}", use_container_width=True):
+                st.session_state[gist_key] = not is_gist_open
+                st.rerun()
+
+        with col_toggle:
+            btn_text = f"▲ AI 실무 리포트 닫기" if is_open else f"✨ AI 심층 리포트 ▾"
+            if st.button(btn_text, key=f"btn_toggle_{prefix}_{idx}_{case_no}", use_container_width=True):
+                st.session_state[toggle_key] = not is_open
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # 판결·예규 요지 뷰어
+        if is_gist_open:
+            ruling_cache_key = f"ruling_detail_{case_id}"
+            if ruling_cache_key in st.session_state:
+                ruling_data = st.session_state[ruling_cache_key]
+            else:
+                # item 내부에 이미 summary(요지)가 충분히 담겨 있는 인용 판례/예규는 즉시 사용
+                if item.get("summary") and len(item.get("summary", "")) > 15:
+                    ruling_data = {
+                        "summary": item.get("summary", ""),
+                        "points": item.get("title", ""),
+                        "ref_articles": item.get("tax_category", ""),
+                        "order": "",
+                        "source_type": f"{source} ({court})"
+                    }
+                else:
+                    with st.spinner("공식 판결/예규 요지 및 판시사항을 조회 중입니다..."):
+                        prec_id = item.get("prec_id", "")
+                        raw_detail = fetch_prec_detail(prec_id) if prec_id else {}
+                        if raw_detail.get("has_detail"):
+                            ruling_data = {
+                                "summary": raw_detail.get("summary") or item.get("title", ""),
+                                "points": raw_detail.get("points") or item.get("title", ""),
+                                "ref_articles": raw_detail.get("ref_articles") or "",
+                                "order": raw_detail.get("order") or "",
+                                "source_type": f"국가법령정보센터 ({raw_detail.get('court') or court})"
+                            }
+                        else:
+                            ai_ruling = generate_ruling_summary(item)
+                            ruling_data = {
+                                "summary": ai_ruling.get("summary") or item.get("title", ""),
+                                "points": ai_ruling.get("points") or item.get("title", ""),
+                                "ref_articles": ai_ruling.get("ref_articles") or "",
+                                "order": "",
+                                "source_type": f"국세법령정보시스템 & AI 공인 요약 ({court})"
+                            }
+                st.session_state[ruling_cache_key] = ruling_data
+
+            ruling_clip_text = build_ruling_clipboard_text(item, ruling_data)
+            ruling_cp_id = f"cp_gist_{prefix}_{idx}_{abs(hash(case_no))}"
+
+            st.markdown(f"""
+            <div class="ruling-summary-box">
+                <div class="ruling-header">
+                    <div class="ruling-badge">
+                        <span>📜</span>
+                        <span>공식 판결·예규 요지 ({ruling_data.get('source_type', '공식 요지')})</span>
+                    </div>
+                    <div style="font-size:0.82rem; color:#64748B;">선고/결정: <b>{date_str}</b> | 사건번호: <b>{case_no}</b></div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            col_r_body, col_r_btn = st.columns([3.8, 1.2], vertical_alignment="center")
+            with col_r_body:
+                st.markdown(f"<div style='font-size:0.86rem; color:#475569; font-weight:600;'>사건명: {title}</div>", unsafe_allow_html=True)
+            with col_r_btn:
+                render_copy_button(ruling_clip_text, ruling_cp_id)
+
+            summary_txt = ruling_data.get("summary", "")
+            if summary_txt:
+                st.markdown(f"""
+                <div class="ruling-section-title">⚖️ 1. 판결·예규 요지 및 판단 기준</div>
+                <div class="ruling-text">{summary_txt}</div>
+                """, unsafe_allow_html=True)
+
+            points_txt = ruling_data.get("points", "")
+            if points_txt and points_txt != summary_txt:
+                st.markdown(f"""
+                <div class="ruling-section-title">📌 2. 판시사항 및 핵심 쟁점</div>
+                <div class="ruling-text">{points_txt}</div>
+                """, unsafe_allow_html=True)
+
+            order_txt = ruling_data.get("order", "")
+            if order_txt:
+                st.markdown(f"""
+                <div class="ruling-section-title">⚖️ 3. 주문 (Order)</div>
+                <div class="ruling-text" style="font-weight:600; color:#003876;">{order_txt}</div>
+                """, unsafe_allow_html=True)
+
+            ref_txt = ruling_data.get("ref_articles", "")
+            if ref_txt:
+                article_pills = "".join([f'<span class="ruling-article-tag">{art.strip()}</span>' for art in ref_txt.replace('/', ',').split(',') if art.strip()])
+                st.markdown(f"""
+                <div class="ruling-section-title" style="margin-top:10px;">📖 4. 관련 세법 조항 및 참조 법령</div>
+                <div style="margin-top:4px;">{article_pills}</div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # 펼쳐지는 노션 스타일 AI 리포트
+        if is_open:
+            analysis_key = f"gemini_data_{prefix}_{idx}_{item.get('prec_id')}_{case_no}"
+            
+            if analysis_key not in st.session_state:
+                with st.spinner("Gemini AI가 세무 쟁점 및 증빙 체크리스트를 분석 중입니다..."):
+                    summary_res = summarize_case(item)
+                    st.session_state[analysis_key] = summary_res
+            else:
+                summary_res = st.session_state[analysis_key]
+
+            # 보고용 클립보드 텍스트 및 복사 버튼 렌더링
+            clip_text = build_clipboard_text(item, summary_res)
+            btn_id = f"cp_{prefix}_{idx}_{abs(hash(case_no))}"
+            
+            col_rep_title, col_rep_btn = st.columns([3, 2], vertical_alignment="center")
+            with col_rep_title:
+                saved_flag_html = " <span class='vault-saved-badge'>★ 보관함 보관 중</span>" if is_saved else ""
+                st.markdown(f"<div style='font-size:0.95rem; font-weight:700; color:#005B45; margin: 8px 0;'>📊 Gemini AI 심층 세무 검토 의견{saved_flag_html}</div>", unsafe_allow_html=True)
+            with col_rep_btn:
+                render_copy_button(clip_text, btn_id)
+
+            # 1. CJ 블루 콜아웃
+            st.markdown(f"""
+            <div class="notion-block nb-cjblue">
+                <div class="notion-icon">📋</div>
+                <div class="notion-body">
+                    <div class="notion-title">관련 세법 조항 및 핵심 쟁점</div>
+                    {format_notion_content(summary_res.get('legal_basis', ''))}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # 2. 노션 2단 컬럼
+            col_gov, col_taxpayer = st.columns(2)
+            with col_gov:
+                st.markdown(f"""
+                <div class="notion-block nb-orange">
+                    <div class="notion-icon">🏢</div>
+                    <div class="notion-body">
+                        <div class="notion-title">과세관청(국세청) 과세 논거</div>
+                        {format_notion_content(summary_res.get('tax_office_view', ''))}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_taxpayer:
+                st.markdown(f"""
+                <div class="notion-block nb-gray">
+                    <div class="notion-icon">👤</div>
+                    <div class="notion-body">
+                        <div class="notion-title">납세자 방어 논리</div>
+                        {format_notion_content(summary_res.get('taxpayer_view', ''))}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # 3. 노션 그레이
+            st.markdown(f"""
+            <div class="notion-block nb-gray">
+                <div class="notion-icon">⚖️</div>
+                <div class="notion-body">
+                    <div class="notion-title">법원 / 심판원 최종 판단 기준</div>
+                    {format_notion_content(summary_res.get('court_decision', ''))}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # 4. 노션 그린
+            st.markdown(f"""
+            <div class="notion-block nb-green">
+                <div class="notion-icon">💼</div>
+                <div class="notion-body">
+                    <div class="notion-title">회계·세무팀 실무 액션 플랜 & 필수 증빙 체크리스트</div>
+                    {format_notion_content(summary_res.get('actionable_takeaway', ''))}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # 5. 사내 보고용 텍스트 전문 미리보기 & 직접 복사 박스
+            with st.expander("📄 사내 보고용 텍스트 전문 미리보기 & 직접 복사", expanded=False):
+                st.markdown("<div style='font-size:0.84rem; color:#64748B; margin-bottom:6px;'>※ 우측 상단의 복사 아이콘(📋)을 클릭하거나 전체 선택(Ctrl+A)하여 사내 메신저나 이메일에 바로 붙여넣기 하실 수 있습니다.</div>", unsafe_allow_html=True)
+                st.code(clip_text, language="markdown")
+
+        st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+
+
+
+
+def build_clipboard_text(case_item: dict, summary_res: dict) -> str:
+    title = case_item.get('title', '')
+    case_no = case_item.get('case_number', '')
+    court = case_item.get('court', '')
+    date_str = case_item.get('date', '')
+    link = case_item.get('link', '')
+
+    legal_basis = summary_res.get('legal_basis', '').strip()
+    tax_office_view = summary_res.get('tax_office_view', '').strip()
+    taxpayer_view = summary_res.get('taxpayer_view', '').strip()
+    court_decision = summary_res.get('court_decision', '').strip()
+    actionable = summary_res.get('actionable_takeaway', '').strip()
+
+    text = f"""[CJ프레시웨이 세무 검토 의견 요약]
+■ 사건 기본 정보
+- 사건명: {title}
+- 사건번호: {case_no} ({court}, {date_str} 선고/결정)
+- 원문 링크: {link}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. 관련 세법 조항 및 핵심 쟁점
+{legal_basis}
+
+2. 과세관청(국세청) 과세 논거
+{tax_office_view}
+
+3. 납세자 방어 논리
+{taxpayer_view}
+
+4. 법원 / 심판원 최종 판단 기준
+{court_decision}
+
+5. 회계·세무팀 실무 액션 플랜 & 필수 증빙 체크리스트
+{actionable}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+* 출처: CJ프레시웨이 TAX AI 비서 (국가법령정보센터 DB & Gemini AI 분석)
+"""
+    return text.strip()
+
+
+def build_ruling_clipboard_text(case_item: dict, ruling_data: dict) -> str:
+    title = case_item.get('title', '')
+    case_no = case_item.get('case_number', '')
+    court = case_item.get('court', '')
+    date_str = case_item.get('date', '')
+    link = case_item.get('link', '')
+
+    summary = ruling_data.get('summary', '').strip()
+    points = ruling_data.get('points', '').strip()
+    articles = ruling_data.get('ref_articles', '').strip()
+
+    text = f"""[공식 세무 판결·예규 요지 요약]
+■ 사건명: {title}
+■ 사건번호: {case_no} ({court}, {date_str} 선고/결정)
+■ 원문 링크: {link}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. 판결·예규 요지 (판단 기준)
+{summary}
+
+2. 판시사항 및 주요 쟁점
+{points}
+
+3. 관련 세법 조항 / 참조조문
+{articles}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+* 출처: 국가법령정보센터 DB & CJ프레시웨이 TAX AI 비서
+"""
+    return text.strip()
+
+
+def build_briefing_clipboard_text(user_query: str, intent_info: dict, briefing_res: dict) -> str:
+    """자연어 상황 진단 AI 종합 브리핑 클립보드 텍스트 생성"""
+    cat = intent_info.get("tax_category", "조세일반")
+    issue = intent_info.get("core_issue", "")
+    conclusion = briefing_res.get("conclusion", "").strip()
+    case_comp = briefing_res.get("case_comparison", "").strip()
+    checklist = briefing_res.get("checklist", "").strip()
+
+    text = f"""[CJ프레시웨이] AI 세무 실무 상황 진단 및 판례 솔루션 리포트
+■ 사용자 질문 및 사실관계
+{user_query}
+
+■ AI 쟁점 분석
+- 분류 세목: [{cat}]
+- 핵심 쟁점: {issue}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. 세무 리스크 진단 및 핵심 결론
+{conclusion}
+
+2. 관련 실제 판례와의 비교 및 법원 판단 취지
+{case_comp}
+
+3. 실무자를 위한 필수 증빙 체크리스트 & 행동 수칙
+{checklist}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+* 생성 일시: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
+* 출처: CJ프레시웨이 TAX AI 비서 (국가법령정보센터 DB & Gemini AI 분석)
+"""
+    return text.strip()
+
+
+
+# ----------------- 관심 판례 및 AI 리포트 보관함 영구 저장 관리 -----------------
+# load_saved_cases 및 save_saved_cases는 storage 모듈(원자적 파일 쓰기 & 데이터 살균)에서 제공됩니다.
+
+def build_multi_case_report(saved_cases: dict) -> str:
+    """세무검토 사례관리 보관함 종합 요약형 보고서(TXT)"""
+    lines = [
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "[CJ프레시웨이] 세무검토 사례관리 보관함 종합 검토의견서 (요약형)",
+        f"· 추출 일시: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}",
+        f"· 보관 사례 수: 총 {len(saved_cases)}건",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    ]
+    for idx, (cid, item) in enumerate(saved_cases.items(), 1):
+        t = item.get("title", "")
+        tax = item.get("tax_category", "조세일반")
+        status = item.get("review_status", "검토중")
+        risk = item.get("risk_level", "중립/유의")
+        tags_str = ", ".join(item.get("issue_tags", []))
+        c_at = item.get("created_at", item.get("saved_at", "-"))
+        
+        facts = item.get("facts_summary", {})
+        ai_op = item.get("ai_opinion", {})
+        user_q = item.get("user_query", "")
+        memo = item.get("user_memo", "")
+        
+        lines.append(f"【사례 #{idx}】 {t}")
+        lines.append(f"• 세목: [{tax}] | 검토상태: [{status}] | 리스크 등급: [{risk}]")
+        if tags_str:
+            lines.append(f"• 쟁점 태그: {tags_str}")
+        lines.append(f"• 등록일시: {c_at}")
+        
+        if user_q:
+            lines.append(f"• 검토 대상 질문: {user_q[:120]}...")
+            
+        if facts:
+            lines.append("• 사실관계 요약:")
+            lines.append(f"  - 거래유형: {facts.get('trans_type','-')} | 거래상대방: {facts.get('counterparty','-')}")
+            lines.append(f"  - 거래금액: {facts.get('amount','-')} | 보유증빙: {facts.get('evidence_held','-')}")
+            
+        if ai_op:
+            lines.append("• AI 검토 결론:")
+            conc = ai_op.get("conclusion", "").strip()
+            lines.append(f"  {conc[:300]}..." if len(conc) > 300 else f"  {conc}")
+            lines.append(f"• 필수 점검 체크리스트: {ai_op.get('checklist', '').strip()[:200]}...")
+            
+        if memo:
+            lines.append(f"• 사용자 메모: {memo}")
+            
+        lines.append("────────────────────────────────────────────────────────────\n")
+    lines.append("* 출처: CJ프레시웨이 TAX AI 비서 (국가법령정보센터 DB & Gemini AI 분석)")
+    return "\n".join(lines)
+
+
+def build_single_case_txt_report(item: dict) -> str:
+    """개별 세무검토 사례 카드 상세 텍스트 보고서 생성"""
+    t = item.get("title", "")
+    tax = item.get("tax_category", "조세일반")
+    status = item.get("review_status", "검토중")
+    risk = item.get("risk_level", "중립/유의")
+    tags_str = ", ".join(item.get("issue_tags", []))
+    c_at = item.get("created_at", item.get("saved_at", "-"))
+    u_at = item.get("updated_at", c_at)
+    
+    facts = item.get("facts_summary", {})
+    legal_refs = item.get("legal_references", [])
+    ai_op = item.get("ai_opinion", {})
+    user_q = item.get("user_query", "")
+    memo = item.get("user_memo", "")
+    
+    lines = [
+        "════════════════════════════════════════════════════════════",
+        f"[CJ프레시웨이 세무검토 사례 보고서] {t}",
+        "════════════════════════════════════════════════════════════",
+        f"1. 기본 정보",
+        f"  • 관리번호: {item.get('case_id', '-')}",
+        f"  • 세    목: {tax}",
+        f"  • 검토상태: {status}",
+        f"  • 리스크등급: {risk}",
+        f"  • 쟁점태그: {tags_str or '미지정'}",
+        f"  • 등 록 일: {c_at} (최종수정: {u_at})",
+        "",
+        "2. 사용자 질문 및 검토 요청 내용",
+        f"  {user_q or '미기재'}",
+        "",
+        "3. 구조화 사실관계 요약",
+        f"  • 거래 유형: {facts.get('trans_type', '-')}",
+        f"  • 거래 상대방: {facts.get('counterparty', '-')}",
+        f"  • 거래 금액: {facts.get('amount', '-')}",
+        f"  • 귀속 시기: {facts.get('tax_period', '-')}",
+        f"  • 보유 증빙: {facts.get('evidence_held', '-')}",
+        f"  • 검토 목적: {facts.get('purpose', '-')}",
+        "",
+        "4. 관련 법령 및 공식 판례·예규 근거",
+    ]
+    
+    if not legal_refs:
+        lines.append("  (등록된 개별 판례 링크 없음 - 종합 검색 풀 참조)")
+    else:
+        for idx, lr in enumerate(legal_refs, 1):
+            lines.append(f"  [{idx}] {lr.get('court','')} {lr.get('case_number','')} ({lr.get('date','')})")
+            lines.append(f"      사건명: {lr.get('title','')}")
+            if lr.get('link'):
+                lines.append(f"      링크: {lr.get('link')}")
+                
+    lines.extend([
+        "",
+        "5. AI 세무 종합 검토의견",
+        f"  • 근거 강도: [{ai_op.get('basis_strength', '-')}] ({ai_op.get('basis_rationale', '-')})",
+        f"  • 핵심 결론:",
+        f"    {ai_op.get('conclusion', '').strip()}",
+        "",
+        f"  • 실무 필수 증빙 체크리스트:",
+        f"    {ai_op.get('checklist', '').strip()}",
+        "",
+        "6. 담당자 실무 메모 및 후속 조치",
+        f"  {memo or '(등록된 메모 없음)'}",
+        "════════════════════════════════════════════════════════════",
+        f"※ 본 문서는 CJ프레시웨이 TAX AI 비서에서 작성된 사내 사전 검토용 의견서입니다."
+    ])
+    
+    return "\n".join(lines)
+
+
+def build_vault_excel_report(saved_cases_dict: dict) -> bytes:
+    """세무검토 사례 목록을 구조화된 상세 엑셀 바이트로 생성"""
+    rows = []
+    for cid, item in saved_cases_dict.items():
+        facts = item.get("facts_summary", {})
+        ai_op = item.get("ai_opinion", {})
+        refs = item.get("legal_references", [])
+        ref_summary = "; ".join([f"{r.get('court','')} {r.get('case_number','')} ({r.get('title','')})" for r in refs[:3]])
+        
+        rows.append({
+            "사례ID": item.get("case_id", cid),
+            "제목": item.get("title", ""),
+            "세목": item.get("tax_category", "조세일반"),
+            "검토상태": item.get("review_status", "검토중"),
+            "리스크등급": item.get("risk_level", "중립/유의"),
+            "쟁점태그": ", ".join(item.get("issue_tags", [])),
+            "사용자질문": item.get("user_query", ""),
+            "거래유형": facts.get("trans_type", ""),
+            "거래상대방": facts.get("counterparty", ""),
+            "거래금액": facts.get("amount", ""),
+            "귀속시기": facts.get("tax_period", ""),
+            "보유증빙": facts.get("evidence_held", ""),
+            "검토목적": facts.get("purpose", ""),
+            "관련판례_법령": ref_summary,
+            "AI_근거강도": ai_op.get("basis_strength", ""),
+            "AI_검토결론": ai_op.get("conclusion", ""),
+            "실무체크리스트": ai_op.get("checklist", ""),
+            "사용자메모": item.get("user_memo", ""),
+            "등록일시": item.get("created_at", item.get("saved_at", "")),
+            "최종수정일": item.get("updated_at", "")
+        })
+        
+    df = pd.DataFrame(rows)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='세무검토사례관리')
+    return buf.getvalue()
+
+
+# ----------------- CJ프레시웨이 테마 커스텀 CSS -----------------
+st.markdown("""
+<style>
+    /* =========================================================================
+       CJ프레시웨이 TAX AI - 클린 와이드 디자인 시스템 (사이드바 단일 내비게이션)
+       ========================================================================= */
+
+    @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css");
+
+    /* 1. 타이포그래피 (아이콘 폰트 간섭 완전 방지) */
+    html, body, .stApp, 
+    p, h1, h2, h3, h4, h5, h6, 
+    label, input, textarea, select, 
+    div:not([data-testid*="Icon"]):not([class*="material-"]):not(.material-symbols-rounded):not(.material-symbols-outlined), 
+    span:not([data-testid*="Icon"]):not([class*="material-"]):not(.material-symbols-rounded):not(.material-symbols-outlined) {
+        font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+    }
+
+    /* 머티리얼 심볼/아이콘 폰트 복원 (글자 겹침 방지) */
+    [data-testid*="Icon"], 
+    [data-testid="stIconMaterial"], 
+    [class*="material-symbols"], 
+    [class*="material-icons"],
+    .material-symbols-rounded, 
+    .material-symbols-outlined {
+        font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Icons" !important;
+        font-style: normal !important;
+        font-weight: normal !important;
+        letter-spacing: normal !important;
+        line-height: 1 !important;
+        text-transform: none !important;
+        display: inline-block !important;
+        white-space: nowrap !important;
+        word-wrap: normal !important;
+        direction: ltr !important;
+        -webkit-font-feature-settings: 'liga' !important;
+        -webkit-font-smoothing: antialiased !important;
+    }
+
+    /* 아코디언(st.expander) UI 완벽 복원 및 모던 스타일링 */
+    div[data-testid="stExpander"] {
+        border: 1.5px solid #E2E8F0 !important;
+        border-radius: 10px !important;
+        background-color: #FFFFFF !important;
+        margin-bottom: 12px !important;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
+        overflow: hidden !important;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+    }
+    div[data-testid="stExpander"]:hover {
+        border-color: #A7D7C9 !important;
+        box-shadow: 0 3px 10px rgba(0, 91, 69, 0.06) !important;
+    }
+    div[data-testid="stExpander"] summary {
+        padding: 12px 18px !important;
+        font-size: 0.94rem !important;
+        font-weight: 600 !important;
+        color: #1E293B !important;
+        cursor: pointer !important;
+        transition: background-color 0.15s ease !important;
+    }
+    div[data-testid="stExpander"] summary:hover {
+        background-color: #F8FAFC !important;
+        color: #005B45 !important;
+    }
+    div[data-testid="stExpander"] summary [data-testid*="Icon"] {
+        color: #005B45 !important;
+    }
+
+    /* 사이드바 본체 (왼쪽 메인 메뉴) */
+    section[data-testid="stSidebar"] {
+        background-color: #F8FAFC !important;
+        border-right: 1.5px solid #E2E8F0 !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+        background-color: #F8FAFC !important;
+        padding-top: 1.5rem !important;
+    }
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] div,
+    section[data-testid="stSidebar"] label {
+        color: #1E293B !important;
+    }
+    section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+        background-color: #FFFFFF !important;
+        border: 1px solid #CBD5E1 !important;
+        color: #1E293B !important;
+        border-radius: 8px !important;
+    }
+    section[data-testid="stSidebar"] div[data-baseweb="select"] * {
+        color: #1E293B !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+        height: 42px !important;
+        min-height: 42px !important;
+        background-color: #FFFFFF !important;
+        border: 1.5px solid #E2E8F0 !important;
+        color: #334155 !important;
+        font-weight: 600 !important;
+        font-size: 0.90rem !important;
+        border-radius: 9px !important;
+        transition: all 0.15s ease !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        padding: 0 16px !important;
+        margin-bottom: 6px !important;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03) !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+        background-color: #EDF6F1 !important;
+        border-color: #005B45 !important;
+        color: #005B45 !important;
+        transform: translateX(3px) !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"],
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button[data-testid="baseButton-primary"] {
+        background-color: #005B45 !important;
+        border: 1.5px solid #004D3A !important;
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+        box-shadow: 0 3px 10px rgba(0, 91, 69, 0.22) !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] * {
+        color: #FFFFFF !important;
+    }
+
+    .stApp {
+        background-color: #FFFFFF !important;
+    }
+
+    /* 상단 장식선 및 우측 불필요 메뉴만 선별 숨김 */
+    [data-testid="stDecoration"] {
+        display: none !important;
+    }
+    [data-testid="stToolbarActions"],
+    [data-testid="manage-app-button"],
+    #MainMenu {
+        display: none !important;
+    }
+
+    /* 상단 헤더 투명화 & 본문 클릭 차단 방지 (pointer-events: none) */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        pointer-events: none !important;
+        z-index: 999990 !important;
+    }
+    header[data-testid="stHeader"] [data-testid="stToolbar"] {
+        background: transparent !important;
+        display: flex !important;
+        visibility: visible !important;
+        pointer-events: none !important;
+    }
+
+    /* 사이드바 접기/펼치기 버튼 상시 노출 및 세련된 플로팅 버튼 스타일링 */
+    [data-testid="stExpandSidebarButton"],
+    [data-testid="stSidebarCollapseButton"] {
+        display: inline-flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 1000000 !important;
+        pointer-events: auto !important;
+    }
+    [data-testid="stExpandSidebarButton"] button,
+    [data-testid="stSidebarCollapseButton"] button {
+        background-color: #FFFFFF !important;
+        border: 1.5px solid #CBD5E1 !important;
+        border-radius: 8px !important;
+        color: #005B45 !important;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12) !important;
+        width: 38px !important;
+        height: 38px !important;
+        min-width: 38px !important;
+        min-height: 38px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        cursor: pointer !important;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        pointer-events: auto !important;
+    }
+    [data-testid="stExpandSidebarButton"] button:hover,
+    [data-testid="stSidebarCollapseButton"] button:hover {
+        background-color: #EDF6F1 !important;
+        border-color: #005B45 !important;
+        color: #005B45 !important;
+        transform: scale(1.08) !important;
+        box-shadow: 0 4px 14px rgba(0, 91, 69, 0.20) !important;
+    }
+    [data-testid="stExpandSidebarButton"] button *,
+    [data-testid="stSidebarCollapseButton"] button * {
+        color: #005B45 !important;
+        fill: #005B45 !important;
+        pointer-events: auto !important;
+    }
+
+    /* 본문 와이드 컨테이너: 상단 메뉴 없이 넓고 시원한 검색 공간 확보 */
+    .block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 5rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+        max-width: 1240px !important;
+    }
+
+    /* 빨간색 primary 버튼 전면 박멸 -> CJ 그린 (#005B45) 강제 적용 */
+    button[kind="primary"],
+    button[data-testid="baseButton-primary"] {
+        background-color: #005B45 !important;
+        border-color: #004D3A !important;
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+    }
+    button[kind="primary"] * {
+        color: #FFFFFF !important;
+    }
+
+    /* 홈 화면 히어로 & 헤더 */
+    .hero-container {
+        text-align: center;
+        padding: 20px 0 20px 0;
+        max-width: 860px;
+        margin: 0 auto;
+    }
+    .hero-container .service-title {
+        font-size: 2.45rem;
+        font-weight: 800;
+        color: #0F172A;
+        margin-bottom: 12px;
+        line-height: 1.35;
+        letter-spacing: -0.035em;
+        word-break: keep-all;
+    }
+    .hero-container .service-subtitle {
+        font-size: 1.08rem;
+        color: #475569;
+        line-height: 1.7;
+        margin-bottom: 26px;
+        word-break: keep-all;
+        text-wrap: balance;
+    }
+
+    /* 플로팅 검색창 컨테이너 */
+    .search-outer-container {
+        max-width: 860px;
+        margin: 0 auto 30px auto;
+    }
+    div[data-testid="stChatInput"] {
+        border-radius: 16px !important;
+        border: 1.5px solid #CBD5E1 !important;
+        box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(15, 23, 42, 0.04) !important;
+        background-color: #FFFFFF !important;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        padding: 6px 10px !important;
+    }
+    div[data-testid="stChatInput"]:focus-within {
+        border-color: #005B45 !important;
+        box-shadow: 0 0 0 4px rgba(0, 91, 69, 0.12), 0 20px 40px rgba(15, 23, 42, 0.1) !important;
+        transform: translateY(-2px) !important;
+    }
+
+    /* 프롬프트 시나리오 카드 */
+    div.scenario-card-container div[data-testid="stButton"] > button {
+        height: auto !important;
+        min-height: 72px !important;
+        background: #FFFFFF !important;
+        border: 1.5px solid #E2E8F0 !important;
+        border-radius: 12px !important;
+        padding: 14px 18px !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        font-size: 0.90rem !important;
+        line-height: 1.5 !important;
+        color: #1E293B !important;
+        font-weight: 600 !important;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03) !important;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        white-space: normal !important;
+        word-break: keep-all !important;
+    }
+    div.scenario-card-container div[data-testid="stButton"] > button:hover {
+        border-color: #005B45 !important;
+        background: #F8FAF9 !important;
+        color: #005B45 !important;
+        transform: translateY(-3px) !important;
+        box-shadow: 0 10px 24px rgba(0, 91, 69, 0.10) !important;
+    }
+
+    /* 블룸버그 로우 스타일 판례 피드 카드 (검색 결과 및 보관함 공통) */
+    .case-card-editorial, .case-container {
+        background-color: #FFFFFF;
+        border: 1.5px solid #E2E8F0;
+        border-left: 5px solid transparent;
+        border-radius: 12px;
+        padding: 22px 26px;
+        margin-bottom: 16px;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+        transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+        cursor: pointer;
+    }
+    .case-card-editorial:hover, .case-container:hover {
+        background: linear-gradient(135deg, #EFF8F4 0%, #FAFDFB 60%, #FFFFFF 100%) !important;
+        border-color: #48A388 !important;
+        border-left: 5px solid #005B45 !important;
+        box-shadow: 0 14px 34px rgba(0, 91, 69, 0.16), 0 3px 8px rgba(0, 91, 69, 0.06) !important;
+        transform: translateY(-3px) !important;
+    }
+    .case-card-editorial:hover .case-headline,
+    .case-container:hover .case-title {
+        color: #004D3A !important;
+        transition: color 0.15s ease;
+    }
+
+    /* 집중 검토 중 (요지 또는 AI 리포트 오픈 시) 카드 강조 */
+    .case-container.case-focused, .case-card-editorial.case-focused {
+        background: linear-gradient(135deg, #E6F4ED 0%, #F5FAF7 60%, #FFFFFF 100%) !important;
+        border-color: #005B45 !important;
+        border-left: 5px solid #005B45 !important;
+        box-shadow: 0 12px 30px rgba(0, 91, 69, 0.18) !important;
+    }
+
+    .case-card-editorial .case-headline, .case-container .case-title {
+        font-size: 1.22rem;
+        font-weight: 700;
+        color: #0F172A;
+        line-height: 1.45;
+        margin: 8px 0 10px 0;
+        word-break: keep-all;
+    }
+
+    /* 뱃지 칩 (세목, 기관/법원, 상태) */
+    .case-badge-court {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #003876;
+        background-color: #F0F5FA;
+        border: 1px solid #D0E0F2;
+        padding: 3px 9px;
+        border-radius: 6px;
+    }
+    .case-badge-nts {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #92400E;
+        background-color: #FEF3C7;
+        border: 1px solid #FDE68A;
+        padding: 3px 9px;
+        border-radius: 6px;
+    }
+    .tax-badge {
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 3px 9px;
+        border-radius: 6px;
+        letter-spacing: -0.01em;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+    }
+    .tax-corp { color: #005B45; background-color: #EBF7F2; border: 1px solid #C1E5D9; }
+    .tax-vat { color: #1D4ED8; background-color: #EFF6FF; border: 1px solid #BFDBFE; }
+    .tax-income { color: #C2410C; background-color: #FFF7ED; border: 1px solid #FED7AA; }
+    .tax-etc { color: #475569; background-color: #F1F5F9; border: 1px solid #CBD5E1; }
+
+    .case-focus-badge {
+        font-size: 0.76rem;
+        font-weight: 800;
+        color: #005B45;
+        background-color: #D1FAE5;
+        border: 1px solid #A7F3D0;
+        padding: 2px 8px;
+        border-radius: 4px;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+    }
+    .vault-saved-badge {
+        font-size: 0.76rem;
+        font-weight: 700;
+        color: #D97706;
+        background-color: #FEF3C7;
+        border: 1px solid #FDE68A;
+        padding: 2px 8px;
+        border-radius: 4px;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+    }
+
+    /* 통일된 38px 액션 버튼 바 */
+    div.case-action-bar div[data-testid="stButton"] > button,
+    div.card-actions div[data-testid="stButton"] > button {
+        height: 38px !important;
+        min-height: 38px !important;
+        border-radius: 8px !important;
+        font-size: 0.86rem !important;
+        font-weight: 600 !important;
+        padding: 0 12px !important;
+        transition: all 0.15s ease !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    div.case-action-bar div[data-testid="stButton"] > button[kind="primary"],
+    div.card-actions div[data-testid="stButton"] > button[kind="primary"],
+    div.card-actions div[data-testid="stButton"] > button[data-testid="baseButton-primary"] {
+        background-color: #005B45 !important;
+        border: 1px solid #004D3A !important;
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+    }
+    div.case-action-bar div[data-testid="stButton"] > button[kind="secondary"],
+    div.card-actions div[data-testid="stButton"] > button[kind="secondary"],
+    div.card-actions div[data-testid="stButton"] > button[data-testid="baseButton-secondary"] {
+        background-color: #FFFFFF !important;
+        border: 1.5px solid #CBD5E1 !important;
+        color: #334155 !important;
+    }
+    div.case-action-bar div[data-testid="stButton"] > button[kind="secondary"]:hover,
+    div.card-actions div[data-testid="stButton"] > button[kind="secondary"]:hover {
+        border-color: #005B45 !important;
+        color: #005B45 !important;
+        background-color: #F8FAF9 !important;
+    }
+
+    /* AI 심층 분석 5단 콜아웃 리포트 */
+    .ai-report-callout {
+        background-color: #F8FAFC;
+        border-left: 4px solid #005B45;
+        border-radius: 0 10px 10px 0;
+        padding: 20px 24px;
+        margin: 16px 0;
+    }
+    .ai-report-callout .report-section-title {
+        font-size: 0.96rem;
+        font-weight: 700;
+        color: #005B45;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .ai-report-callout .report-body {
+        font-size: 0.90rem;
+        line-height: 1.68;
+        color: #334155;
+    }
+
+    /* 노션 스타일 콜아웃 블록 */
+    .notion-block {
+        display: flex;
+        align-items: flex-start;
+        padding: 18px 22px;
+        border-radius: 10px;
+        margin: 14px 0;
+        font-size: 0.92rem;
+        line-height: 1.68;
+        background-color: #F7F6F3;
+        border: 1px solid #E9E9E7;
+    }
+    .notion-icon {
+        font-size: 1.25rem;
+        margin-right: 14px;
+        line-height: 1.4;
+        flex-shrink: 0;
+    }
+    .notion-body {
+        flex: 1;
+        color: #37352F;
+    }
+    .notion-title {
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: #1E293B;
+        margin-bottom: 4px;
+    }
+    .nb-cjblue { background-color: #F0F5FA; border: 1px solid #D0E0F2; }
+    .nb-orange { background-color: #FEF8F0; border: 1px solid #FEE4CE; }
+    .nb-gray { background-color: #F7F6F3; border: 1px solid #E9E9E7; }
+    .nb-green { background-color: #EDF6F1; border: 1px solid #CDE7D8; }
+    .nb-red { background-color: #FDF2F2; border: 1px solid #F8D7DA; }
+    .nb-yellow { background-color: #FDF9EC; border: 1px solid #F9EFC7; }
+    .nb-purple { background-color: #F7F3FB; border: 1px solid #E9DDF4; }
+
+    /* 노션 페이지 카드 컨테이너 */
+    .notion-page-card {
+        background-color: #FFFFFF;
+        border: 1px solid #E9E9E7;
+        border-radius: 12px;
+        padding: 26px 30px;
+        box-shadow: 0 2px 10px rgba(15, 15, 15, 0.03);
+    }
+    .notion-page-title {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: #37352F;
+        letter-spacing: -0.025em;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .notion-tag {
+        font-size: 0.78rem;
+        font-weight: 600;
+        padding: 3px 9px;
+        border-radius: 5px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .notion-tag-gray { background-color: #F1F1EF; color: #5A5A58; }
+    .notion-tag-green { background-color: #DBEDDB; color: #1C3829; }
+    .notion-tag-orange { background-color: #FAECE4; color: #49290E; }
+    .notion-tag-red { background-color: #FFE2DD; color: #5D1715; }
+    .notion-tag-blue { background-color: #DDEBF1; color: #0B2937; }
+
+    /* 좌측 계정과목 피커 버튼 */
+    div.acc-sidebar-container div[data-testid="stButton"] > button,
+    div[data-testid="stHorizontalBlock"]:has(.acc-sidebar-marker) div[data-testid="column"]:first-child div[data-testid="stButton"] > button {
+        height: 38px !important;
+        min-height: 38px !important;
+        background-color: #FFFFFF !important;
+        border: 1px solid #E9E9E7 !important;
+        border-radius: 6px !important;
+        padding: 0 12px !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        font-size: 0.88rem !important;
+        font-weight: 600 !important;
+        color: #37352F !important;
+        margin-bottom: 3px !important;
+        box-shadow: 0 1px 2px rgba(15, 15, 15, 0.02) !important;
+        transition: all 0.15s ease !important;
+    }
+    div.acc-sidebar-container div[data-testid="stButton"] > button:hover,
+    div[data-testid="stHorizontalBlock"]:has(.acc-sidebar-marker) div[data-testid="column"]:first-child div[data-testid="stButton"] > button:hover {
+        background-color: #F1F1EF !important;
+        border-color: #D3D3D0 !important;
+        color: #111827 !important;
+        transform: translateX(2px) !important;
+    }
+    div.acc-sidebar-container div[data-testid="stButton"] > button[kind="primary"],
+    div[data-testid="stHorizontalBlock"]:has(.acc-sidebar-marker) div[data-testid="column"]:first-child div[data-testid="stButton"] > button[kind="primary"],
+    div[data-testid="stHorizontalBlock"]:has(.acc-sidebar-marker) div[data-testid="column"]:first-child div[data-testid="stButton"] > button[data-testid="baseButton-primary"] {
+        background-color: #EDF6F1 !important;
+        border: 1.5px solid #005B45 !important;
+        color: #005B45 !important;
+        font-weight: 700 !important;
+        box-shadow: 0 2px 6px rgba(0,91,69,0.1) !important;
+    }
+
+    /* 탭 (st.tabs) 모던 스타일링 */
+    div[data-testid="stTabs"] div[data-baseweb="tab-list"] {
+        gap: 8px !important;
+        border-bottom: 2px solid #E2E8F0 !important;
+        margin-bottom: 16px !important;
+    }
+    div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        font-size: 0.92rem !important;
+        font-weight: 600 !important;
+        color: #64748B !important;
+        padding: 8px 16px !important;
+        border-radius: 6px 6px 0 0 !important;
+        transition: all 0.15s ease !important;
+    }
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover {
+        color: #005B45 !important;
+        background-color: #F8FAF9 !important;
+    }
+    div[data-testid="stTabs"] button[aria-selected="true"] {
+        color: #005B45 !important;
+        font-weight: 700 !important;
+        border-bottom: 2px solid #005B45 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ----------------- 사이드바 설정 -----------------
+with st.sidebar:
+    st.markdown('''
+    <div style="margin-bottom:16px; padding-bottom:14px; border-bottom:1.5px solid #E2E8F0;">
+        <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:1.25rem; font-weight:800; color:#005B45; letter-spacing:-0.02em;">CJ프레시웨이</span>
+            <span style="font-size:0.72rem; font-weight:800; background:#E61E2B; color:#FFFFFF; padding:2px 6px; border-radius:4px; letter-spacing:0.04em;">TAX AI</span>
+        </div>
+        <div style="font-size:0.80rem; color:#64748B; margin-top:6px; line-height:1.4;">사내 세무 판례 실시간 검색 및 AI 분석 시스템</div>
+    </div>
+    ''', unsafe_allow_html=True)
+    
+    st.markdown("<div style='font-size:0.75rem; font-weight:700; color:#64748B; text-transform:uppercase; margin-bottom:8px; letter-spacing:0.04em;'>📌 주요 업무 메뉴</div>", unsafe_allow_html=True)
+    
+    cur_v = st.session_state.get("active_view", "search")
+    
+    if st.button("🔍 판례 AI 진단", key="sb_nav_search", use_container_width=True, type="primary" if cur_v == "search" else "secondary"):
+        st.session_state["active_view"] = "search"
+        st.rerun()
+
+    if st.button("📖 실무 매뉴얼 & 계정", key="sb_nav_manual", use_container_width=True, type="primary" if cur_v == "manual" else "secondary"):
+        st.session_state["active_view"] = "manual"
+        st.rerun()
+
+    if st.button("👥 특수관계자 판별", key="sb_nav_relations", use_container_width=True, type="primary" if cur_v == "relations" else "secondary"):
+        st.session_state["active_view"] = "relations"
+        st.rerun()
+
+    if st.button("🧮 가산세 계산기", key="sb_nav_penalty", use_container_width=True, type="primary" if cur_v == "penalty" else "secondary"):
+        st.session_state["active_view"] = "penalty"
+        st.rerun()
+
+    vault_cnt = len(st.session_state.get("saved_cases", {}))
+    if st.button(f"📁 세무검토 사례보관함 ({vault_cnt})", key="sb_nav_vault", use_container_width=True, type="primary" if cur_v == "vault" else "secondary"):
+        st.session_state["active_view"] = "vault"
+        st.rerun()
+
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+    
+    # 연결 인프라 및 보안 상태 점검
+    oc_val = config.get_law_oc()
+    gem_val = config.get_gemini_api_key()
+    oc_status = f"● 국가법령정보센터 ({config.mask_secret(oc_val)})" if oc_val else "○ 국가법령정보센터 (키 미설정)"
+    gem_status = f"● Google Gemini AI ({config.mask_secret(gem_val)})" if gem_val else "○ Google Gemini AI (키 미설정)"
+    oc_color = "#005B45" if oc_val else "#DC2626"
+    gem_color = "#005B45" if gem_val else "#DC2626"
+
+    tunnel_warning_html = ""
+    if config.is_tunnel_mode():
+        tunnel_warning_html = '''
+        <div style="background:#FEF2F2; border:1.5px solid #FCA5A5; border-radius:8px; padding:9px 11px; margin-bottom:10px; font-size:0.75rem; color:#991B1B; line-height:1.45;">
+            <b>⚠️ 외부 인터넷 공유 모드</b><br>
+            Cloudflare Tunnel이 연결되어 있습니다. 사내 기밀 및 민감 정보 입력에 각별히 유의하십시오.
+        </div>
+        '''
+
+    st.markdown(f'''
+    {tunnel_warning_html}
+    <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:8px; padding:10px 12px; margin-bottom:12px; box-shadow:0 1px 3px rgba(15,23,42,0.02);">
+        <div style="font-size:0.74rem; color:#64748B; margin-bottom:5px; font-weight:600;">인프라 및 보안 상태</div>
+        <div style="font-size:0.78rem; font-weight:600; color:{oc_color}; margin-bottom:2px;">{oc_status}</div>
+        <div style="font-size:0.78rem; font-weight:600; color:{gem_color};">{gem_status}</div>
+        <div style="font-size:0.73rem; color:#64748B; margin-top:6px; border-top:1px dashed #E2E8F0; padding-top:5px;">
+            기준일: <b>{config.get_tax_base_date()}</b> 귀속 세법
+        </div>
+    </div>
+    <div style="font-size:0.70rem; color:#94A3B8; line-height:1.4; padding:0 4px; margin-bottom:12px;">
+        ※ 본 시스템의 진단은 참고용이며, 최종 세무신고 시 구체적 사실관계 확인 및 세무대리인 검토가 필요합니다.
+    </div>
+    ''', unsafe_allow_html=True)
+
+    with st.expander("⚙️ 검색 세부 설정", expanded=False):
+        result_limit = st.slider("최대 검색 건수", min_value=5, max_value=30, value=st.session_state.get("result_limit", 15), step=5, key="sb_limit_slider")
+        st.session_state["result_limit"] = result_limit
+
+    category_choice = st.session_state.get("selected_category", "전체")
+    result_limit = st.session_state.get("result_limit", 15)
+
+# ----------------- 세션 상태 초기화 (디폴트는 빈 검색창) -----------------
+if "search_input" not in st.session_state:
+    st.session_state["search_input"] = ""
+if "main_prompt_text" not in st.session_state:
+    st.session_state["main_prompt_text"] = ""
+if "selected_tax_type" not in st.session_state:
+    st.session_state["selected_tax_type"] = "전체"
+if "selected_category" not in st.session_state:
+    st.session_state["selected_category"] = "전체"
+if "result_limit" not in st.session_state:
+    st.session_state["result_limit"] = 15
+if "saved_cases" not in st.session_state:
+    st.session_state["saved_cases"] = load_saved_cases()
+if "active_view" not in st.session_state:
+    st.session_state["active_view"] = "search"
+
+# 화면 1: 관심 판례 및 AI 리포트 보관함 (Vault View)
+# =========================================================================
+if st.session_state["active_view"] == "vault":
+    st.markdown("""
+    <div class="compact-header">
+        <div class="cj-badge">
+            <span class="cj-dot"></span>
+            CJ FRESHWAY · TAX INTELLIGENCE
+        </div>
+        <div class="service-title">📁 세무검토 사례관리 보관함</div>
+        <div class="service-subtitle">회사의 실제 세무 질의, 7대 사실관계, 공식 법령/판례 근거, AI 검토의견, 실무자 메모를 체계적인 <b>세무검토 사례 카드</b>로 통합 관리합니다.</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 민감정보 보호 및 보안 안내 배너
+    st.markdown("""
+    <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:4px solid #005B45; border-radius:8px; padding:10px 14px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div style="font-size:0.83rem; color:#166534; line-height:1.5;">
+            🔒 <b>보안 및 민감정보 보호 안내</b>: 저장 시 주민등록번호, 계좌번호, API Key 등은 자동 마스킹 처리됩니다. 회사 내부 기밀이나 거래처 개인정보는 보관 전 마스킹 여부를 재확인하십시오.
+        </div>
+        <div style="font-size:0.78rem; color:#005B45; font-weight:700; background:#DCFCE7; padding:3px 8px; border-radius:4px;">
+            원자적 안전 저장 (Atomic Storage) 활성
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    all_cases_dict = st.session_state.get("saved_cases", {})
+    all_items = list(all_cases_dict.values())
+
+    if not all_items:
+        st.markdown("""
+        <div class="notion-block nb-gray" style="margin-top:20px; padding:36px 24px; text-align:center; display:block;">
+            <div style="font-size:2.4rem; margin-bottom:12px;">📁</div>
+            <div style="font-size:1.15rem; font-weight:700; color:#0F172A; margin-bottom:8px;">현재 보관함에 저장된 세무검토 사례가 없습니다</div>
+            <div style="font-size:0.92rem; color:#64748B; line-height:1.6; margin-bottom:20px;">
+                세무 상황 질문 검색 후 <b>[☆ 사례 보관함 저장]</b> 버튼을 누르시면,<br>
+                질문 내용, 7대 사실관계 요약, 공식 판례 근거, AI 검토의견이 <b>사례 카드</b> 형태로 이곳에 영구 저장됩니다.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        col_empty_s1, col_empty_btn, col_empty_s2 = st.columns([1.5, 2, 1.5])
+        with col_empty_btn:
+            if st.button("🔍 세무 상황 진단 및 판례 검색하러 가기", key="btn_go_search_from_empty", use_container_width=True, type="primary"):
+                st.session_state["active_view"] = "search"
+                st.rerun()
+    else:
+        # =====================================================================
+        # 1. 다차원 검색 및 필터 툴바 (검색어, 세목, 상태, 위험등급)
+        # =====================================================================
+        with st.expander("🔍 세무검토 사례 다차원 검색 및 필터", expanded=True):
+            col_f_kw, col_f_tax, col_f_stat, col_f_risk = st.columns([3.0, 1.8, 1.8, 1.8], vertical_alignment="center")
+            with col_f_kw:
+                f_keyword = st.text_input("통합 키워드 검색", placeholder="제목, 사건번호, 질문, 메모, 쟁점태그 검색", key="vault_f_kw")
+            with col_f_tax:
+                f_tax_opts = ["전체 세목", "법인세", "부가가치세", "소득세·원천세", "상속·증여세", "조세일반"]
+                f_tax = st.selectbox("세목 필터", f_tax_opts, index=0, key="vault_f_tax")
+            with col_f_stat:
+                f_stat_opts = ["전체 상태"] + VALID_REVIEW_STATUSES
+                f_stat = st.selectbox("검토 상태 필터", f_stat_opts, index=0, key="vault_f_stat")
+            with col_f_risk:
+                f_risk_opts = ["전체 등급", "저위험", "중립/유의", "고위험"]
+                f_risk = st.selectbox("위험 등급 필터", f_risk_opts, index=0, key="vault_f_risk")
+
+        # 필터링 로직 적용
+        filtered_items = []
+        for it in all_items:
+            # 1) 세목 필터
+            if f_tax != "전체 세목" and it.get("tax_category") != f_tax:
+                continue
+            # 2) 상태 필터
+            if f_stat != "전체 상태" and it.get("review_status") != f_stat:
+                continue
+            # 3) 위험도 필터
+            if f_risk != "전체 등급" and it.get("risk_level") != f_risk:
+                continue
+            # 4) 키워드 검색
+            if f_keyword.strip():
+                kw = f_keyword.strip().lower()
+                target_str = (
+                    it.get("title", "") + " " +
+                    it.get("case_number", "") + " " +
+                    it.get("user_query", "") + " " +
+                    it.get("user_memo", "") + " " +
+                    " ".join(it.get("issue_tags", []))
+                ).lower()
+                if kw not in target_str:
+                    continue
+            filtered_items.append(it)
+
+        # 상단 일괄 액션 바 (카운트 | TXT 다운로드 | 엑셀 다운로드 | 전체 비우기)
+        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+        col_v_count, col_v_txt, col_v_excel, col_v_clear = st.columns([2.0, 1.8, 1.8, 1.4], vertical_alignment="center")
+        with col_v_count:
+            st.markdown(f"<div style='font-size:0.92rem; color:#475569;'>보관 <b>{len(all_items)}건</b> 중 필터 <b>{len(filtered_items)}건</b> 표시</div>", unsafe_allow_html=True)
+        with col_v_txt:
+            filtered_dict = {it.get("case_id", f"c_{i}"): it for i, it in enumerate(filtered_items)}
+            multi_txt_report = build_multi_case_report(filtered_dict)
+            st.download_button(
+                label="📄 요약 TXT 다운로드",
+                data=multi_txt_report.encode("utf-8"),
+                file_name=f"CJ프레시웨이_세무검토사례_요약_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.txt",
+                mime="text/plain",
+                use_container_width=True,
+                key="btn_dl_vault_txt"
+            )
+        with col_v_excel:
+            excel_bytes = build_vault_excel_report(filtered_dict)
+            st.download_button(
+                label="📥 상세 Excel 다운로드",
+                data=excel_bytes,
+                file_name=f"CJ프레시웨이_세무검토사례_상세_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="btn_dl_vault_excel"
+            )
+        with col_v_clear:
+            if st.button("🗑️ 보관함 전체 비우기", key="btn_clear_all_vault", use_container_width=True):
+                st.session_state["saved_cases"] = {}
+                save_saved_cases({})
+                st.toast("보관함의 모든 세무검토 사례가 삭제되었습니다.", icon="🗑️")
+                st.rerun()
+
+        st.markdown("<hr style='border:none; border-top:1px solid #CBD5E1; margin: 14px 0 16px 0;'>", unsafe_allow_html=True)
+
+        # =====================================================================
+        # 2. 세무검토 사례 카드 목록 렌더링
+        # =====================================================================
+        if not filtered_items:
+            st.info("💡 선택하신 검색 조건 및 필터에 부합하는 세무검토 사례가 없습니다.")
+        
+        for v_idx, v_item in enumerate(filtered_items):
+            v_case_id = v_item.get("case_id", f"case_{v_idx}")
+            title = v_item.get("title", "")
+            tax_cat = v_item.get("tax_category", "조세일반")
+            review_status = v_item.get("review_status", "검토중")
+            risk_level = v_item.get("risk_level", "중립/유의")
+            issue_tags = v_item.get("issue_tags", [])
+            created_at = v_item.get("created_at", v_item.get("saved_at", "-"))
+            updated_at = v_item.get("updated_at", created_at)
+            user_query = v_item.get("user_query", "")
+            facts_summary = v_item.get("facts_summary", {})
+            legal_refs = v_item.get("legal_references", [])
+            ai_op = v_item.get("ai_opinion", {})
+            user_memo = v_item.get("user_memo", "")
+
+            # 상태 배지 스타일링
+            if review_status == "최종 완료":
+                status_badge = '<span style="background:#DCFCE7; color:#166534; border:1px solid #86EFAC; font-size:0.78rem; font-weight:700; padding:3px 8px; border-radius:6px;">✅ 최종 완료</span>'
+            elif review_status == "회계사 확인 필요":
+                status_badge = '<span style="background:#FEE2E2; color:#991B1B; border:1px solid #FCA5A5; font-size:0.78rem; font-weight:700; padding:3px 8px; border-radius:6px;">⚠️ 회계사 확인 필요</span>'
+            elif review_status == "1차 완료":
+                status_badge = '<span style="background:#EFF6FF; color:#1E40AF; border:1px solid #BFDBFE; font-size:0.78rem; font-weight:700; padding:3px 8px; border-radius:6px;">🔷 1차 완료</span>'
+            else:
+                status_badge = '<span style="background:#FEF3C7; color:#92400E; border:1px solid #FCD34D; font-size:0.78rem; font-weight:700; padding:3px 8px; border-radius:6px;">⏳ 검토중</span>'
+
+            # 위험 등급 배지
+            if "고위험" in risk_level:
+                risk_badge = '<span style="background:#FEE2E2; color:#991B1B; border:1px solid #FCA5A5; font-size:0.76rem; font-weight:700; padding:2px 7px; border-radius:4px;">🔴 리스크: 高</span>'
+            elif "저위험" in risk_level or "안전" in risk_level:
+                risk_badge = '<span style="background:#DCFCE7; color:#166534; border:1px solid #86EFAC; font-size:0.76rem; font-weight:700; padding:2px 7px; border-radius:4px;">🟢 리스크: 低</span>'
+            else:
+                risk_badge = '<span style="background:#FEF3C7; color:#92400E; border:1px solid #FCD34D; font-size:0.76rem; font-weight:700; padding:2px 7px; border-radius:4px;">🟡 리스크: 中</span>'
+
+            # 세목 배지
+            if tax_cat == "법인세":
+                tax_badge = '<span class="tax-badge tax-corp">🏢 법인세</span>'
+            elif tax_cat == "부가가치세":
+                tax_badge = '<span class="tax-badge tax-vat">🧾 부가가치세</span>'
+            elif tax_cat == "소득세·원천세":
+                tax_badge = '<span class="tax-badge tax-income">👤 소득세·원천세</span>'
+            elif tax_cat == "상속·증여세":
+                tax_badge = '<span class="tax-badge tax-etc">🎁 상속·증여세</span>'
+            else:
+                tax_badge = f'<span class="tax-badge tax-etc">⚖️ {tax_cat}</span>'
+
+            # 쟁점 태그 배지
+            tag_badges = "".join([f'<span style="background:#F1F5F9; color:#475569; font-size:0.74rem; padding:2px 6px; border-radius:4px; margin-right:4px;">#{tg}</span>' for tg in issue_tags[:4]])
+
+            card_detail_key = f"v_detail_open_{v_idx}_{v_case_id}"
+            is_detail_open = st.session_state.get(card_detail_key, False)
+            focus_cls = " case-focused" if is_detail_open else ""
+
+            with st.container():
+                # 사례 카드 헤더 렌더링
+                card_html = f"""
+                <div class="case-container{focus_cls}" style="margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            {status_badge}
+                            {tax_badge}
+                            {risk_badge}
+                            <span style="font-size:0.80rem; color:#64748B; font-family:monospace;">ID: {v_case_id[:18]}</span>
+                        </div>
+                        <div style="font-size:0.80rem; color:#94A3B8;">
+                            등록: {created_at} | 수정: {updated_at}
+                        </div>
+                    </div>
+                    <div class="case-title" style="margin: 8px 0 6px 0;">{title}</div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                        <div>{tag_badges}</div>
+                        <div style="font-size:0.82rem; color:#64748B;">
+                            근거자료 <b>{len(legal_refs)}건</b> | 메모 <b>{'있음' if user_memo else '없음'}</b>
+                        </div>
+                    </div>
+                </div>
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
+
+                # 컨트롤 버튼 바 (상세보기 토글 | 개별 삭제)
+                col_btn_tog, col_btn_del = st.columns([5.0, 1.2], vertical_alignment="center")
+                with col_btn_tog:
+                    tog_label = "▲ 세무검토 상세 닫기" if is_detail_open else "📋 세무검토 상세 보기 ▾ (사실관계/근거자료/AI의견/메모/보고서)"
+                    if st.button(tog_label, key=f"btn_v_toggle_{v_idx}_{v_case_id}", use_container_width=True):
+                        st.session_state[card_detail_key] = not is_detail_open
+                        st.rerun()
+                with col_btn_del:
+                    if st.button("🗑️ 사례 삭제", key=f"btn_v_delete_{v_idx}_{v_case_id}", use_container_width=True):
+                        if v_case_id in st.session_state["saved_cases"]:
+                            del st.session_state["saved_cases"][v_case_id]
+                            save_saved_cases(st.session_state["saved_cases"])
+                            st.toast("사례가 보관함에서 안전하게 삭제되었습니다.", icon="🗑️")
+                            st.rerun()
+
+                # =============================================================
+                # 5대 상세 탭: 사실관계 / 근거자료 / AI 검토의견 / 사용자 메모 / 보고서 출력
+                # =============================================================
+                if is_detail_open:
+                    st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+                    tab_dt_facts, tab_dt_refs, tab_dt_ai, tab_dt_memo, tab_dt_rep = st.tabs([
+                        "📋 1. 사실관계",
+                        "🏛️ 2. 근거자료 (법령/판례)",
+                        "💡 3. AI 검토의견",
+                        "📝 4. 사용자 메모 & 상태",
+                        "📑 5. 보고서 출력"
+                    ])
+
+                    # 1) 사실관계 탭
+                    with tab_dt_facts:
+                        st.markdown(f"""
+                        <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:8px; padding:12px 16px; margin-bottom:12px;">
+                            <div style="font-size:0.86rem; font-weight:700; color:#1E293B; margin-bottom:6px;">💬 사용자 원본 질문 및 검토 요청</div>
+                            <div style="font-size:0.88rem; color:#334155; line-height:1.6;">{user_query or '(등록된 원본 질문 없음)'}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        st.markdown("<div style='font-size:0.88rem; font-weight:700; color:#005B45; margin-bottom:8px;'>📋 7대 핵심 사실관계 구조화 내역</div>", unsafe_allow_html=True)
+                        f_col1, f_col2 = st.columns(2)
+                        with f_col1:
+                            st.markdown(f"- **적용 세목**: {facts_summary.get('tax_category', tax_cat)}")
+                            st.markdown(f"- **거래 유형**: {facts_summary.get('trans_type', '-')}")
+                            st.markdown(f"- **거래 상대방**: {facts_summary.get('counterparty', '-')}")
+                            st.markdown(f"- **거래 금액**: {facts_summary.get('amount', '-')}")
+                        with f_col2:
+                            st.markdown(f"- **귀속 과세기간**: {facts_summary.get('tax_period', '-')}")
+                            st.markdown(f"- **현재 보유 증빙**: {facts_summary.get('evidence_held', '-')}")
+                            st.markdown(f"- **구체적 검토 목적**: {facts_summary.get('purpose', '-')}")
+
+                    # 2) 근거자료 탭
+                    with tab_dt_refs:
+                        st.markdown("<div style='font-size:0.88rem; font-weight:700; color:#003876; margin-bottom:8px;'>🏛️ 공식 DB에서 확인된 관련 법령 및 판례·예규 근거</div>", unsafe_allow_html=True)
+                        if not legal_refs:
+                            st.info("등록된 공식 판례 세부 목록이 없습니다. 판례 검색을 통해 추가 판례를 보관하실 수 있습니다.")
+                        else:
+                            for r_i, ref in enumerate(legal_refs, 1):
+                                r_title = ref.get("title", "")
+                                r_court = ref.get("court", "법원")
+                                r_cno = ref.get("case_number", "")
+                                r_dt = ref.get("date", "")
+                                r_link = ref.get("link", "")
+                                st.markdown(f"""
+                                <div style="background:#FFFFFF; border:1px solid #CBD5E1; border-radius:8px; padding:10px 14px; margin-bottom:8px;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <div style="font-weight:700; color:#0F172A; font-size:0.92rem;">[{r_i}] {r_court} {r_cno} ({r_dt})</div>
+                                    </div>
+                                    <div style="font-size:0.86rem; color:#334155; margin-top:4px;">{r_title}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                if r_link:
+                                    st.link_button("🌐 국가법령정보센터 공식 원문 바로보기 ↗", r_link, key=f"btn_ref_link_{v_idx}_{r_i}")
+
+                    # 3) AI 검토의견 탭
+                    with tab_dt_ai:
+                        strength = ai_op.get("basis_strength", "유의 필요")
+                        rationale = ai_op.get("basis_rationale", "-")
+                        st.markdown(f"""
+                        <div style="display:flex; align-items:center; gap:10px; background:#F8FAFC; border:1px solid #E2E8F0; padding:8px 14px; border-radius:8px; margin-bottom:12px;">
+                            <span style="font-weight:700; font-size:0.86rem; color:#005B45;">근거 강도: [{strength}]</span>
+                            <span style="font-size:0.84rem; color:#475569;">({rationale})</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        st.markdown(f"""
+                        <div class="notion-block nb-green">
+                            <div class="notion-icon">⚖️</div>
+                            <div class="notion-body">
+                                <div class="notion-title">1. 핵심 세무 검토 의견 및 리스크 진단</div>
+                                {format_notion_content(ai_op.get('conclusion', ''))}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        if ai_op.get('case_comparison'):
+                            st.markdown(f"""
+                            <div class="notion-block nb-cjblue">
+                                <div class="notion-icon">🏛️</div>
+                                <div class="notion-body">
+                                    <div class="notion-title">2. 관련 판례 법리 비교</div>
+                                    {format_notion_content(ai_op.get('case_comparison', ''))}
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                        if ai_op.get('checklist'):
+                            st.markdown(f"""
+                            <div class="notion-block nb-orange">
+                                <div class="notion-icon">💼</div>
+                                <div class="notion-body">
+                                    <div class="notion-title">3. 실무 필수 증빙 체크리스트 & 권고사항</div>
+                                    {format_notion_content(ai_op.get('checklist', ''))}
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    # 4) 사용자 메모 및 검토상태 탭
+                    with tab_dt_memo:
+                        st.markdown("<div style='font-size:0.88rem; font-weight:700; color:#1E293B; margin-bottom:8px;'>📝 실무자 메모 작성 및 검토 상태 갱신</div>", unsafe_allow_html=True)
+                        with st.form(key=f"memo_form_{v_idx}_{v_case_id}", clear_on_submit=False):
+                            col_st_sel, col_st_info = st.columns([2.0, 3.0], vertical_alignment="center")
+                            with col_st_sel:
+                                cur_status_idx = VALID_REVIEW_STATUSES.index(review_status) if review_status in VALID_REVIEW_STATUSES else 0
+                                new_status = st.selectbox("검토 진행 상태", VALID_REVIEW_STATUSES, index=cur_status_idx, key=f"sel_status_{v_case_id}")
+                            with col_st_info:
+                                st.caption("상태 변경 시 사례 관리 목록과 엑셀 리포트에 즉시 반영됩니다.")
+
+                            new_memo_text = st.text_area(
+                                "실무 메모 / 추가 확인사항 / 회계사 피드백",
+                                value=user_memo,
+                                height=110,
+                                placeholder="예: 2026.09.15 세무대리인 삼일회계법인 검토 완료. 계약서 특약조항 보강 후 손금산입 진행하기로 함.",
+                                key=f"input_memo_{v_case_id}"
+                            )
+
+                            if st.form_submit_button("💾 메모 및 검토상태 저장", use_container_width=True):
+                                ok = update_case_memo_and_status(v_case_id, new_memo_text, new_status)
+                                if ok:
+                                    st.session_state["saved_cases"] = load_saved_cases()
+                                    st.toast("메모와 검토상태가 성공적으로 저장되었습니다!", icon="💾")
+                                    st.rerun()
+                                else:
+                                    st.error("저장 중 오류가 발생했습니다.")
+
+                    # 5) 보고서 출력 탭
+                    with tab_dt_rep:
+                        st.markdown("<div style='font-size:0.88rem; font-weight:700; color:#0F172A; margin-bottom:8px;'>📑 단일 사례 보고서 출력 & 다운로드</div>", unsafe_allow_html=True)
+                        single_rep_txt = build_single_case_txt_report(v_item)
+                        col_rep_cp, col_rep_dl = st.columns([1.5, 1.5], vertical_alignment="center")
+                        with col_rep_cp:
+                            render_copy_button(single_rep_txt, f"cp_single_rep_{v_idx}_{v_case_id}")
+                        with col_rep_dl:
+                            st.download_button(
+                                label="💾 개별 사례 .txt 다운로드",
+                                data=single_rep_txt.encode("utf-8"),
+                                file_name=f"CJ프레시웨이_사례_{v_case_id[:12]}_{pd.Timestamp.now().strftime('%Y%m%d')}.txt",
+                                mime="text/plain",
+                                use_container_width=True,
+                                key=f"dl_single_txt_{v_idx}_{v_case_id}"
+                            )
+                        st.code(single_rep_txt, language="markdown")
+
+                st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+
+elif st.session_state["active_view"] == "manual":
+    st.markdown("""
+    <div class="compact-header">
+        <div class="cj-badge">
+            <span class="cj-dot"></span>
+            CJ FRESHWAY · TAX INTELLIGENCE
+        </div>
+        <div class="service-title">📖 CJ프레시웨이 실무 세무 매뉴얼 & 현업 FAQ 가이드</div>
+        <div class="service-subtitle">
+            영업·MD·물류·운영 현업에서 빈번하게 발생하는 세무 의사결정을 <b>3초 판별 마법사</b>로 해결하고, <b>6대 분야별 표준 세무 매뉴얼</b> 및 <b>사내 배포용 템플릿</b>을 제공합니다.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    tab_wiz, tab_acc, tab_faq, tab_tmpl = st.tabs([
+        "⚡ 3초 판별 의사결정 마법사",
+        "📚 실무 계정과목 마스터 사전",
+        "📂 6대 분야별 실무 FAQ & 표준 매뉴얼",
+        "📄 사내 공지/현업 배포용 원클릭 템플릿"
+    ])
+
+    # -------------------------------------------------------------
+    # 탭 1: 3초 판별 의사결정 마법사 (Interactive Decision Wizards)
+    # -------------------------------------------------------------
+    with tab_wiz:
+        st.markdown("<div style='font-size:0.95rem; font-weight:700; color:#005B45; margin:8px 0 4px 0;'>🎯 현업 실무 의사결정 시뮬레이터</div>", unsafe_allow_html=True)
+        st.caption("복잡한 세법 규정을 몰라도 2~3개 질문에 응답하면 회계 계정과목, 부가가치세 공제 여부, 세무조사 필수 증빙을 즉시 도출합니다.")
+        st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+
+        wiz_choice = st.radio(
+            "판별기 선택",
+            options=["cost_type", "sales_incentive", "inventory_loss"],
+            format_func=lambda k: WIZARDS[k]["title"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="wiz_selector"
+        )
+        selected_wiz = WIZARDS[wiz_choice]
+
+        st.markdown(f"""
+        <div style="background:#F0FDF4; border:1px solid #A7D7C9; border-left:5px solid #005B45; border-radius:8px; padding:14px 18px; margin:12px 0 16px 0;">
+            <div style="font-size:1.02rem; font-weight:800; color:#005B45;">{selected_wiz['title']}</div>
+            <div style="font-size:0.86rem; color:#475569; margin-top:4px;">{selected_wiz['desc']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        user_answers = {}
+        cols_q = st.columns(len(selected_wiz["steps"]))
+        for q_idx, step in enumerate(selected_wiz["steps"]):
+            with cols_q[q_idx]:
+                st.markdown(f"<div style='font-size:0.88rem; font-weight:700; color:#1E293B; margin-bottom:6px;'>{step['label']}</div>", unsafe_allow_html=True)
+                ans = st.selectbox(
+                    step["label"],
+                    options=step["options"],
+                    key=f"wiz_{wiz_choice}_{step['id']}",
+                    label_visibility="collapsed"
+                )
+                user_answers[step["id"]] = ans
+
+        # 판정 실행
+        wiz_eval = selected_wiz["evaluate"](user_answers)
+
+        st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+        
+        # 판정 결과 카드
+        st.markdown(f"""
+        <div style="background:#FFFFFF; border:1.5px solid #005B45; border-radius:10px; padding:18px 22px; box-shadow:0 4px 16px rgba(0,91,69,0.08);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; border-bottom:1px solid #E2E8F0; padding-bottom:12px; margin-bottom:14px;">
+                <div>
+                    <span style="font-size:1.15rem; font-weight:800;">{wiz_eval['result_badge']}</span>
+                </div>
+                <div>
+                    <span style="font-size:0.82rem; font-weight:700; color:#005B45; background:#EBF7F2; padding:4px 10px; border-radius:20px; border:1px solid #C1E5D9;">
+                        판정 항목: {wiz_eval.get('subject', '')}
+                    </span>
+                </div>
+            </div>
+            <div style="font-size:0.95rem; line-height:1.65; color:#1E293B; margin-bottom:14px;">
+                {wiz_eval.get('summary', '')}
+            </div>
+        """, unsafe_allow_html=True)
+
+        col_res1, col_res2 = st.columns(2)
+        with col_res1:
+            st.markdown("""
+            <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:8px; padding:12px 16px; height:100%;">
+                <div style="font-size:0.86rem; font-weight:700; color:#003876; margin-bottom:6px;">📋 필수 구비 증빙 체크리스트</div>
+            """, unsafe_allow_html=True)
+            for chk in wiz_eval.get("checklist", []):
+                st.markdown(f"<div style='font-size:0.83rem; color:#334155; margin-bottom:4px;'>✓ {chk}</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col_res2:
+            st.markdown(f"""
+            <div style="background:#FFFBEB; border:1px solid #FDE68A; border-radius:8px; padding:12px 16px; height:100%;">
+                <div style="font-size:0.86rem; font-weight:700; color:#92400E; margin-bottom:6px;">⚠️ 실무 주의사항 및 리스크</div>
+                <div style="font-size:0.83rem; color:#78350F; line-height:1.5;">{wiz_eval.get('warning', '')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+    # -------------------------------------------------------------
+    # 탭 2: 실무 계정과목 마스터 사전 (Classic Catalog & Detail Guide)
+    # -------------------------------------------------------------
+    with tab_acc:
+        st.markdown("<div style='font-size:0.95rem; font-weight:700; color:#005B45; margin:8px 0 4px 0;'>📚 실무 빈출 25개 핵심 계정과목 마스터 사전</div>", unsafe_allow_html=True)
+        st.caption("좌측 목록에서 계정과목을 클릭하면 표준 정의, 회계 분개 예시, 부가가치세 매입세액 공제 여부, 세무조정 유의사항을 바로 확인할 수 있습니다.")
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+
+        col_cat_sel, col_acc_search = st.columns([4, 2], vertical_alignment="center")
+        with col_cat_sel:
+            cat_opts = list(ACCOUNT_CATEGORIES.keys())
+            sel_acc_cat = st.segmented_control(
+                "분류 선택",
+                options=cat_opts,
+                format_func=lambda k: ACCOUNT_CATEGORIES[k]["title"],
+                default=cat_opts[0],
+                key="seg_account_cat"
+            )
+        with col_acc_search:
+            acc_kw = st.text_input("계정과목 검색", placeholder="🔍 계정과목명 또는 코드 검색 (예: 복리, 813)", label_visibility="collapsed", key="in_acc_search")
+
+        # 해당 카테고리의 계정과목 코드 목록 필터링
+        filtered_codes = list(ACCOUNT_CATEGORIES[sel_acc_cat]["accounts"])
+        if acc_kw:
+            kw_clean = acc_kw.strip().lower()
+            filtered_codes = [
+                c for c in ACCOUNTS_DATA.keys()
+                if kw_clean in ACCOUNTS_DATA[c]["name"].lower()
+                or kw_clean in ACCOUNTS_DATA[c]["code"]
+                or kw_clean in ACCOUNTS_DATA[c]["summary"].lower()
+                or any(kw_clean in ex.lower() for ex in ACCOUNTS_DATA[c]["examples"])
+            ]
+
+        if not filtered_codes:
+            st.info(f"'{acc_kw}' 검색어와 일치하는 계정과목이 없습니다.")
+        else:
+            col_list, col_detail = st.columns([1.6, 3.4])
+            
+            with col_list:
+                st.markdown("<div class='acc-sidebar-marker' style='display:none;'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='font-size:0.82rem; font-weight:700; color:#787774; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.04em;'>📋 계정과목 목록</div>", unsafe_allow_html=True)
+                
+                # 선택된 계정 세션 상태
+                if "sel_account_code" not in st.session_state or st.session_state["sel_account_code"] not in filtered_codes:
+                    st.session_state["sel_account_code"] = filtered_codes[0]
+
+                for code in filtered_codes:
+                    acc_info = ACCOUNTS_DATA[code]
+                    is_selected = (st.session_state["sel_account_code"] == code)
+                    
+                    btn_label = f"📄 [{acc_info['code']}] {acc_info['name']}"
+                    if st.button(btn_label, key=f"btn_acc_pick_{code}", use_container_width=True, type="primary" if is_selected else "secondary"):
+                        st.session_state["sel_account_code"] = code
+                        st.rerun()
+
+            with col_detail:
+                curr_code = st.session_state.get("sel_account_code", filtered_codes[0])
+                if curr_code in ACCOUNTS_DATA:
+                    cur_acc = ACCOUNTS_DATA[curr_code]
+                    cat_info = ACCOUNT_CATEGORIES.get(cur_acc["category"], {"title": "실무 계정과목"})
+                    
+                    # 1. 노션 스타일 페이지 컨테이너 시작
+                    st.markdown(f"""
+                    <div class="notion-page-card">
+                        <div class="notion-page-title">
+                            <span style="font-size:1.75rem; margin-right:6px;">📑</span>
+                            <span>[{cur_acc['code']}] {cur_acc['name']}</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px; margin:10px 0 16px 0; flex-wrap:wrap;">
+                            <span class="notion-tag notion-tag-green">🏷️ {cat_info['title']}</span>
+                            <span class="notion-tag notion-tag-gray">🔤 {cur_acc['en_name']}</span>
+                            <span class="notion-tag notion-tag-orange">📌 계정코드: {cur_acc['code']}</span>
+                        </div>
+                        <div style="font-size:0.98rem; color:#37352F; line-height:1.7; background:#FBFAF8; border-left:3.5px solid #005B45; padding:10px 16px; border-radius:0 6px 6px 0; margin-bottom:18px;">
+                            {cur_acc['summary']}
+                        </div>
+                        <hr style="border:none; border-top:1px solid #EDEDEC; margin:16px 0 18px 0;">
+                    """, unsafe_allow_html=True)
+
+                    # 2. 주요 적용 지출 사례 (노션 그레이 콜아웃)
+                    examples_html = "".join([f"<li style='margin-bottom:4px;'>{ex}</li>" for ex in cur_acc["examples"]])
+                    st.markdown(f"""
+                    <div class="notion-block nb-gray" style="margin-bottom:12px;">
+                        <div class="notion-icon">💡</div>
+                        <div class="notion-body">
+                            <div class="notion-title">주요 적용 지출 사례</div>
+                            <ul style="margin:6px 0 0 16px; padding:0; color:#37352F; font-size:0.90rem; line-height:1.6;">
+                                {examples_html}
+                            </ul>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # 3. 부가가치세 & 법인세 세무조정 (그린 & 옐로우 콜아웃 2열)
+                    col_dt_vat, col_dt_adj = st.columns(2)
+                    with col_dt_vat:
+                        st.markdown(f"""
+                        <div class="notion-block nb-green" style="height:100%; margin:0;">
+                            <div class="notion-icon">🧾</div>
+                            <div class="notion-body">
+                                <div class="notion-title" style="color:#0F5132;">부가가치세 매입세액 공제</div>
+                                <div style="font-size:0.88rem; color:#1C3829; line-height:1.6; margin-top:4px;">
+                                    {cur_acc['vat_rule']}
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    with col_dt_adj:
+                        tax_adj_formatted = cur_acc['tax_adjustment'].replace('\n', '<br>')
+                        st.markdown(f"""
+                        <div class="notion-block nb-yellow" style="height:100%; margin:0;">
+                            <div class="notion-icon">⚖️</div>
+                            <div class="notion-body">
+                                <div class="notion-title" style="color:#8F5B00;">법인세 손금산입 & 세무조정</div>
+                                <div style="font-size:0.88rem; color:#49290E; line-height:1.6; margin-top:4px;">
+                                    {tax_adj_formatted}
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+
+                    # 4. 표준 회계 전표 분개 (노션 코드/전표 블록)
+                    journal_escaped = cur_acc['journal'].replace('\n', '<br>')
+                    st.markdown(f"""
+                    <div class="notion-block nb-gray" style="border-radius:8px; margin-bottom:12px;">
+                        <div class="notion-icon">💼</div>
+                        <div class="notion-body" style="width:100%;">
+                            <div class="notion-title">표준 회계 전표 분개 예시</div>
+                            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:6px; padding:12px 14px; margin-top:8px; font-family:'Courier New', Consolas, monospace; font-size:0.87rem; color:#1E293B; line-height:1.7;">
+                                {journal_escaped}
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # 5. 실무 필수 유의사항 & 리스크 (노션 레드 콜아웃)
+                    precautions_html = "".join([f"<div style='margin-bottom:6px;'>⚠️ {p}</div>" for p in cur_acc["precautions"]])
+                    checklist_tags = " ".join([f"<span class='notion-tag notion-tag-blue'>✓ {c}</span>" for c in cur_acc.get("checklist", [])])
+                    
+                    st.markdown(f"""
+                    <div class="notion-block nb-red" style="margin-bottom:12px;">
+                        <div class="notion-icon">🚨</div>
+                        <div class="notion-body">
+                            <div class="notion-title" style="color:#A11515;">실무 필수 유의사항 & 세무조사 리스크</div>
+                            <div style="font-size:0.88rem; color:#5D1715; line-height:1.6; margin-top:6px;">
+                                {precautions_html}
+                            </div>
+                            <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #F8D7DA;">
+                                <div style="font-size:0.82rem; font-weight:700; color:#5D1715; margin-bottom:6px;">📎 필수 구비 증빙 서류:</div>
+                                <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                                    {checklist_tags}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # 6. 유사 계정과목 구분 (노션 블루 콜아웃)
+                    st.markdown(f"""
+                    <div class="notion-block nb-cjblue" style="margin-bottom:8px;">
+                        <div class="notion-icon">🔄</div>
+                        <div class="notion-body">
+                            <div class="notion-title" style="color:#003876;">유사 계정과목 구분 및 주의사항</div>
+                            <div style="font-size:0.88rem; color:#0B2937; line-height:1.6; margin-top:4px;">
+                                {cur_acc['compare']}
+                            </div>
+                        </div>
+                    </div>
+                    </div> <!-- notion-page-card 닫기 -->
+                    """, unsafe_allow_html=True)
+
+    # -------------------------------------------------------------
+    # 탭 2: 6대 분야별 실무 FAQ & 표준 매뉴얼 (FAQ Accordion)
+    # -------------------------------------------------------------
+    with tab_faq:
+        col_faq_h, col_faq_srch = st.columns([3.5, 2.5], vertical_alignment="center")
+        with col_faq_h:
+            st.markdown("<div style='font-size:0.95rem; font-weight:700; color:#005B45;'>📂 6대 실무 카테고리별 표준 매뉴얼 & FAQ</div>", unsafe_allow_html=True)
+            st.caption("카테고리를 클릭하거나 키워드를 검색하여 관련 법령, 회계 전표 분개, 실무 팁을 확인하세요.")
+        with col_faq_srch:
+            faq_keyword = st.text_input("FAQ 검색", placeholder="🔍 키워드 검색 (예: 경조사비, 수정세금계산서, 간이영수증)", label_visibility="collapsed", key="in_faq_search")
+
+        cat_keys = list(MANUAL_CATEGORIES.keys())
+        cat_labels = [MANUAL_CATEGORIES[k]["title"] for k in cat_keys]
+        
+        selected_cat_key = st.segmented_control(
+            "카테고리 선택",
+            options=cat_keys,
+            format_func=lambda k: MANUAL_CATEGORIES[k]["title"],
+            default=cat_keys[0],
+            key="seg_manual_cat"
+        )
+        
+        cat_data = MANUAL_CATEGORIES[selected_cat_key]
+        st.markdown(f"<div style='font-size:0.84rem; color:#64748B; margin:8px 0 12px 0;'>💡 {cat_data['desc']}</div>", unsafe_allow_html=True)
+
+        rendered_cnt = 0
+        for faq in cat_data["faqs"]:
+            if faq_keyword and (faq_keyword.lower() not in faq["q"].lower() and faq_keyword.lower() not in faq["summary"].lower() and faq_keyword.lower() not in " ".join(faq["rules"]).lower()):
+                continue
+
+            rendered_cnt += 1
+            with st.expander(f"Q. {faq['q']}", expanded=(rendered_cnt == 1)):
+                st.markdown(f"""
+                <div style="background:#F0FDF4; border:1px solid #A7D7C9; border-radius:6px; padding:10px 14px; margin-bottom:12px;">
+                    <span style="font-weight:800; color:#005B45; font-size:0.88rem;">[핵심 요약]</span>
+                    <span style="color:#065F46; font-size:0.88rem; margin-left:6px; font-weight:600;">{faq['summary']}</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.markdown("##### 📜 표준 업무 처리 지침")
+                for r in faq["rules"]:
+                    st.markdown(f"- {r}")
+
+                col_acc, col_leg = st.columns([1.5, 1.0])
+                with col_acc:
+                    st.markdown("##### 💼 표준 회계 전표 분개")
+                    st.code(faq["accounting"], language="markdown")
+                with col_leg:
+                    st.markdown("##### ⚖️ 관련 법적 근거")
+                    st.markdown(f"<div style='font-size:0.84rem; color:#475569; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:6px; padding:10px;'>{faq['legal_basis']}</div>", unsafe_allow_html=True)
+
+                st.markdown(f"""
+                <div style="background:#FFFBEB; border:1px solid #FDE68A; border-radius:6px; padding:10px 14px; margin-top:10px;">
+                    <span style="font-size:0.84rem; font-weight:700; color:#92400E;">💡 실무 적용 팁: </span>
+                    <span style="font-size:0.84rem; color:#78350F;">{faq['action_tip']}</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+        if rendered_cnt == 0:
+            st.info(f"'{faq_keyword}'에 부합하는 FAQ 질의가 이 카테고리에 없습니다. 다른 검색어나 카테고리를 선택해 보세요.")
+
+    # -------------------------------------------------------------
+    # 탭 3: 사내 공지/현업 배포용 원클릭 템플릿 (Templates)
+    # -------------------------------------------------------------
+    with tab_tmpl:
+        st.markdown("<div style='font-size:0.95rem; font-weight:700; color:#005B45; margin:8px 0 4px 0;'>📄 현업 부서 배포용 표준 공지 템플릿</div>", unsafe_allow_html=True)
+        st.caption("현업(영업, MD, 물류, 사업장)에 사내 메신저나 이메일로 바로 공지할 수 있는 완성형 지침 텍스트입니다. 원클릭으로 복사하여 활용하세요.")
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+
+        for tmpl_key, tmpl in TEMPLATES.items():
+            st.markdown(f"""
+            <div style="background:#F8FAFC; border:1px solid #CBD5E1; border-radius:8px; padding:14px 18px; margin-bottom:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <span style="font-size:0.96rem; font-weight:800; color:#0F172A;">{tmpl['title']}</span>
+                </div>
+            """, unsafe_allow_html=True)
+            col_t_body, col_t_btn = st.columns([5, 1], vertical_alignment="top")
+            with col_t_body:
+                st.code(tmpl["content"], language="markdown")
+            with col_t_btn:
+                render_copy_button(tmpl["content"], f"cp_tmpl_{tmpl_key}")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+
+# =========================================================================
+# 화면 2: 지배구조 기반 특수관계자 판별기 (Relations View)
+# =========================================================================
+elif st.session_state["active_view"] == "relations":
+    st.markdown("""
+    <div class="compact-header">
+        <div class="cj-badge">
+            <span class="cj-dot"></span>
+            CJ FRESHWAY · TAX INTELLIGENCE
+        </div>
+        <div class="service-title">👥 지배구조 기반 세법상 특수관계인(특수관계자) 정밀 판별기</div>
+        <div class="service-subtitle">
+            법인 및 주주 출자 지분율, 친족 관계(배우자·4촌이내 혈족·3촌이내 인척), 임원 현황을 바탕으로<br>
+            선택한 기준 주체(법인 또는 개인)와 <b>법인세법·국세기본법·상증세법상 특수관계가 성립하는 전원</b>과 그 <b>법적 조항 근거</b>를 일괄 도출합니다.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if "rel_shares" not in st.session_state:
+        st.session_state["rel_shares"] = [
+            {"company": "법인A", "shareholder": "갑", "ratio": 40.0},
+            {"company": "법인A", "shareholder": "을", "ratio": 30.0},
+            {"company": "법인A", "shareholder": "병", "ratio": 30.0},
+            {"company": "법인B", "shareholder": "법인A", "ratio": 100.0},
+            {"company": "법인B", "shareholder": "정", "ratio": 0.0},
+        ]
+    if "rel_kinships" not in st.session_state:
+        st.session_state["rel_kinships"] = [
+            {"person1": "갑", "person2": "을", "relation": "배우자"}
+        ]
+    if "rel_execs" not in st.session_state:
+        st.session_state["rel_execs"] = [
+            {"person": "갑", "company": "법인A", "role": "대표이사"},
+            {"person": "정", "company": "법인B", "role": "대표이사"}
+        ]
+
+    tab_input, tab_res = st.tabs(["📝 1단계: 지배구조 및 주주·친족 정보 입력", "🎯 2단계: 기준 주체별 특관자 판정 리포트"])
+
+    with tab_input:
+        col_preset, col_reset = st.columns([4, 1.2], vertical_alignment="center")
+        with col_preset:
+            st.markdown("<div style='font-size:0.90rem; font-weight:700; color:#1E293B;'>⚡ 실무 구조도 프리셋 불러오기</div>", unsafe_allow_html=True)
+        with col_reset:
+            if st.button("🔄 기본 예시로 초기화", key="btn_reset_rel", use_container_width=True):
+                st.session_state["rel_shares"] = [
+                    {"company": "법인A", "shareholder": "갑", "ratio": 40.0},
+                    {"company": "법인A", "shareholder": "을", "ratio": 30.0},
+                    {"company": "법인A", "shareholder": "병", "ratio": 30.0},
+                    {"company": "법인B", "shareholder": "법인A", "ratio": 100.0},
+                    {"company": "법인B", "shareholder": "정", "ratio": 0.0},
+                ]
+                st.session_state["rel_kinships"] = [
+                    {"person1": "갑", "person2": "을", "relation": "배우자"}
+                ]
+                st.session_state["rel_execs"] = [
+                    {"person": "갑", "company": "법인A", "role": "대표이사"},
+                    {"person": "정", "company": "법인B", "role": "대표이사"}
+                ]
+                st.toast("기본 예시 구조도로 초기화되었습니다.", icon="🔄")
+                st.rerun()
+
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+
+        st.markdown("##### 🏢 1. 법인별 주주 출자 지분율 구조")
+        st.caption("회사명, 주주명(개인 또는 모법인), 지분율(%)을 입력하세요. (자회사, 손자회사 등 다단계 출자 모두 지원)")
+        df_shares = pd.DataFrame(st.session_state["rel_shares"])
+        edited_shares = st.data_editor(
+            df_shares,
+            num_rows="dynamic",
+            column_config={
+                "company": st.column_config.TextColumn("법인명(피출자회사)", required=True),
+                "shareholder": st.column_config.TextColumn("주주명(개인/법인)", required=True),
+                "ratio": st.column_config.NumberColumn("지분율 (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f%%", required=True)
+            },
+            use_container_width=True,
+            key="editor_shares"
+        )
+        st.session_state["rel_shares"] = edited_shares.to_dict("records")
+
+        col_mid1, col_mid2 = st.columns(2)
+        with col_mid1:
+            st.markdown("##### 👨‍👩‍👧‍👦 2. 주요 주주 간 친족 관계")
+            st.caption("배우자(사실혼 포함), 4촌 이내 혈족, 3촌 이내 인척 관계를 입력하세요.")
+            df_kin = pd.DataFrame(st.session_state["rel_kinships"])
+            edited_kin = st.data_editor(
+                df_kin,
+                num_rows="dynamic",
+                column_config={
+                    "person1": st.column_config.TextColumn("주주 1", required=True),
+                    "person2": st.column_config.TextColumn("주주 2", required=True),
+                    "relation": st.column_config.SelectboxColumn("친족 관계", options=["배우자", "직계존비속(부모/자녀)", "형제자매(2촌)", "4촌이내혈족", "3촌이내인척", "생계유지자"], required=True)
+                },
+                use_container_width=True,
+                key="editor_kin"
+            )
+            st.session_state["rel_kinships"] = edited_kin.to_dict("records")
+
+        with col_mid2:
+            st.markdown("##### 👔 3. 임원(등기/미등기/대표이사) 현황")
+            st.caption("각 법인의 대표이사 또는 등기/미등기 임원으로 재직 중인 주주·개인을 입력하세요.")
+            df_ex = pd.DataFrame(st.session_state["rel_execs"])
+            edited_ex = st.data_editor(
+                df_ex,
+                num_rows="dynamic",
+                column_config={
+                    "person": st.column_config.TextColumn("임원 성명", required=True),
+                    "company": st.column_config.TextColumn("소속 법인명", required=True),
+                    "role": st.column_config.SelectboxColumn("직책", options=["대표이사", "등기임원", "미등기임원", "지배적사용인", "직원"], required=True)
+                },
+                use_container_width=True,
+                key="editor_exec"
+            )
+            st.session_state["rel_execs"] = edited_ex.to_dict("records")
+
+    with tab_res:
+        engine = TaxRelationEngine()
+        engine.load_structure(
+            st.session_state["rel_shares"],
+            st.session_state["rel_kinships"],
+            st.session_state["rel_execs"]
+        )
+
+        all_entities = sorted(list(engine.entities.keys()))
+        if not all_entities:
+            st.warning("먼저 1단계에서 주주 및 법인 정보를 최소 1건 이상 입력해 주세요.")
+        else:
+            col_f_target, col_f_law, col_f_btn = st.columns([3.5, 2.5, 1.5], vertical_alignment="center")
+            with col_f_target:
+                sel_subject = st.selectbox(
+                    "🎯 분석 기준 주체 선택 (누구를 기준으로 특관자를 찾을까요?)",
+                    options=all_entities,
+                    index=0,
+                    key="sb_subject_choice"
+                )
+            with col_f_law:
+                sel_law = st.selectbox(
+                    "⚖️ 적용 법률 기준",
+                    options=["법인세법 (부당행위/가지급금)", "상속세및증여세법 (일감몰아주기/저가양수)", "국세기본법 (제2차납세의무)"],
+                    index=0,
+                    key="sb_law_choice"
+                )
+            with col_f_btn:
+                st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+                run_eval = st.button("🚀 특관자 정밀 판별", key="btn_run_eval", type="primary", use_container_width=True)
+
+            law_keyword = "법인세법" if "법인세" in sel_law else ("상증세법" if "상속" in sel_law else "국세기본법")
+            analysis = engine.analyze_relations(sel_subject, law_type=law_keyword)
+
+            sub_type = analysis["subject_type"]
+            rel_cnt = analysis["related_count"]
+            tot_cnt = analysis["total_targets"]
+
+            st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-left:5px solid #005B45; border-radius:8px; padding:14px 18px; margin-bottom:18px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <div>
+                        <span style="font-size:0.84rem; font-weight:700; color:#005B45; background:#DCFCE7; padding:3px 8px; border-radius:4px;">
+                            🎯 분석 기준: {sel_subject} ({sub_type})
+                        </span>
+                        <span style="font-size:0.84rem; font-weight:700; color:#1E3A8A; background:#DBEAFE; padding:3px 8px; border-radius:4px; margin-left:6px;">
+                            ⚖️ {sel_law.split()[0]}
+                        </span>
+                        <div style="font-size:1.15rem; font-weight:800; color:#0F172A; margin-top:6px;">
+                            총 {tot_cnt}개 주체 중 <span style="color:#DC2626; font-size:1.28rem;">{rel_cnt}명(개사)</span>이 법률상 특수관계인에 해당합니다.
+                        </div>
+                    </div>
+                    <div style="font-size:0.82rem; color:#475569; text-align:right;">
+                        ※ 쌍방관계 원칙(타방 특관자 포함) 및 최신 친족 범위(4촌/3촌) 완벽 적용
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("#### 📋 특수관계 성립 대상자 명부 및 법적 사유 요약")
+            
+            table_rows = []
+            for item in analysis["items"]:
+                tar = item["target"]
+                t_type = item["target_type"]
+                stat = item["status"]
+                rtype = item["rel_type"]
+                basis = item["legal_basis"]
+
+                badge_color = "#DC2626" if item["is_related"] else "#64748B"
+                badge_bg = "#FEE2E2" if item["is_related"] else "#F1F5F9"
+                stat_html = f'<span style="background:{badge_bg}; color:{badge_color}; font-weight:700; padding:2px 8px; border-radius:4px;">{stat}</span>'
+
+                table_rows.append({
+                    "대상자": f"{tar} ({t_type})",
+                    "특수관계 여부": stat_html,
+                    "관계 유형": rtype,
+                    "적용 법조항 및 판단 근거": basis
+                })
+
+            df_display = pd.DataFrame(table_rows)
+            st.markdown(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+            st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+
+            clip_lines = [
+                f"■ [CJ프레시웨이] 세법상 특수관계인 판정 보고서",
+                f"1. 분석 기준 주체: {sel_subject} ({sub_type})",
+                f"2. 검토 적용 법률: {sel_law}",
+                f"3. 총 검토 대상: {tot_cnt}명(사) 중 특수관계 성립 {rel_cnt}명(사)",
+                f"",
+                f"4. 특수관계 성립 상세 내역:"
+            ]
+            for it in analysis["items"]:
+                if it["is_related"]:
+                    clip_lines.append(f" - [{it['target']}] ({it['rel_type']})")
+                    clip_lines.append(f"   · 법적 근거: {it['legal_basis']}")
+
+            clip_lines.append("\n※ 본 검토서는 법인세법 제2조 제12호 및 동법 시행령 제2조 제5항/제6항(쌍방주의), 국세기본법 제2조 제20호를 근거로 산출되었습니다.")
+            full_clip_text = "\n".join(clip_lines)
+
+            col_clip_t, col_clip_btn = st.columns([4, 1.5], vertical_alignment="center")
+            with col_clip_t:
+                st.markdown("##### 📄 사내 보고용 판정 결과 전문")
+            with col_clip_btn:
+                render_copy_button(full_clip_text, f"cp_rel_{hash(sel_subject)}")
+
+            st.code(full_clip_text, language="markdown")
+
+
+# =========================================================================
+# 화면 4: 부가가치세 가산세 계산기 (VAT Penalty View - 중복적용 배제 & 법령 메타데이터)
+# =========================================================================
+elif st.session_state["active_view"] == "penalty":
+    st.markdown("""
+    <div class="compact-header">
+        <div class="cj-badge">
+            <span class="cj-dot"></span>
+            CJ FRESHWAY · TAX INTELLIGENCE
+        </div>
+        <div class="service-title">🧮 부가가치세 세금계산서 가산세 계산기 (법령 기준일 & 중복적용 배제)</div>
+        <div class="service-subtitle">
+            유통업 실무에서 빈번하게 발생하는 세금계산서 지연발급·미발급·전송지연·합계표 누락 등 가산세를 계산합니다.<br>
+            <b>거래일자별 법정 세율·한도 마스터(tax_rates.json)</b>와 <b>부가가치세법 제60조 제9항(가산세 중복 적용의 배제)</b>을 엄격하게 적용합니다.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 1. 거래 기본 정보 및 거래일자 입력 영역
+    st.markdown("##### 💼 1. 거래 기본 정보 및 적용 거래일자 입력")
+    col_p0, col_p1, col_p2, col_p3 = st.columns([2, 3, 2, 2.5], vertical_alignment="center")
+    
+    with col_p0:
+        import datetime
+        v_trans_date = st.date_input(
+            "📅 거래/공급일자",
+            value=datetime.date.today(),
+            help="거래일자 기준으로 당시 시행 중이던 검증된 세율을 자동 적용합니다.",
+            key="input_vat_trans_date"
+        )
+        trans_date_str = v_trans_date.strftime("%Y-%m-%d")
+
+    with col_p1:
+        v_supply_val = st.number_input(
+            "거래 공급가액 (원)",
+            min_value=0,
+            value=st.session_state.get("vat_calc_supply", 100000000), # 기본 1억원
+            step=1000000,
+            format="%d",
+            key="input_vat_supply"
+        )
+        st.session_state["vat_calc_supply"] = v_supply_val
+
+    with col_p2:
+        v_trans_type = st.radio(
+            "거래 유형",
+            options=["매출 (공급자)", "매입 (공급받는자)"],
+            horizontal=True,
+            key="radio_vat_trans_type"
+        )
+        trans_keyword = "매출" if "매출" in v_trans_type else "매입"
+
+    with col_p3:
+        v_tax_val = int(v_supply_val * 0.1)
+        st.markdown(f"""
+        <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:6px; padding:8px 12px;">
+            <div style="font-size:0.72rem; color:#64748B;">부가가치세액 (10%) · 적용일자: {trans_date_str}</div>
+            <div style="font-size:1.05rem; font-weight:700; color:#0F172A;">{v_tax_val:,} 원</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+
+    # 2. 위반 유형 체크리스트
+    st.markdown(f"##### ⚠️ 2. {trans_keyword} 관련 세법상 위반 항목 선택 (다중 선택 가능)")
+    st.caption(f"※ 실무에서 발생한 위반 행위를 체크하세요. [{trans_date_str}] 기준 유효하며 검증(verified)된 법정 세율이 적용됩니다.")
+
+    selected_violations = []
+
+    if trans_keyword == "매출":
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            st.markdown("<div style='font-size:0.86rem; font-weight:700; color:#003876; margin-bottom:6px;'>[세금계산서 발급/전송 관련]</div>", unsafe_allow_html=True)
+            chk_m_no = st.checkbox("❌ 세금계산서 미발급 (2.0%)", help="공급시기 속하는 과세기간 확정신고기한까지 미발급", key="chk_m_no")
+            chk_m_late = st.checkbox("⏳ 세금계산서 지연발급 (1.0%)", help="공급시기 경과 후 확정신고기한 내 발급", key="chk_m_late")
+            chk_m_fake = st.checkbox("🚨 가공(무거래/가짜) 세금계산서 발급 (3.0%)", help="재화·용역 공급 없이 세금계산서만 수수", key="chk_m_fake")
+            chk_m_shadow = st.checkbox("👤 위장(타인명의) 세금계산서 발급 (2.0%)", help="실제 공급자가 아닌 타인 명의로 발급", key="chk_m_shadow")
+            chk_m_diff = st.checkbox("📝 사실과 다른 세금계산서(부실기재) (1.0%)", help="필요적 기재사항 착오 또는 사실과 다르게 기재", key="chk_m_diff")
+
+        with col_m2:
+            st.markdown("<div style='font-size:0.86rem; font-weight:700; color:#005B45; margin-bottom:6px;'>[국세청 전송 및 합계표 관련]</div>", unsafe_allow_html=True)
+            chk_m_notx = st.checkbox("📡 전자세금계산서 미전송 (0.5%)", help="발급일 다음 날까지 미전송 (확정신고기한 경과 후 전송)", key="chk_m_notx")
+            chk_m_latetx = st.checkbox("⏱️ 전자세금계산서 지연전송 (0.3%)", help="발급일 다음 날 경과 후 확정신고기한 내 전송", key="chk_m_latetx")
+            chk_m_nosum = st.checkbox("📊 매출처별 합계표 미제출/부실기재 (0.5%)", help="합계표 미제출 또는 거래처별 기재사항 누락·오류", key="chk_m_nosum")
+            chk_m_latesum = st.checkbox("📑 매출처별 합계표 지연제출 (0.3%)", help="예정신고 누락분을 확정신고 시 제출", key="chk_m_latesum")
+
+        if chk_m_no: selected_violations.append("세금계산서_미발급")
+        if chk_m_late: selected_violations.append("세금계산서_지연발급")
+        if chk_m_fake: selected_violations.append("가공_세금계산서_발급")
+        if chk_m_shadow: selected_violations.append("위장_세금계산서_발급")
+        if chk_m_diff: selected_violations.append("사실과다른_세금계산서_발급")
+        if chk_m_notx: selected_violations.append("전자세금계산서_미전송")
+        if chk_m_latetx: selected_violations.append("전자세금계산서_지연전송")
+        if chk_m_nosum: selected_violations.append("매출처별합계표_미제출")
+        if chk_m_latesum: selected_violations.append("매출처별합계표_지연제출")
+
+    else:
+        col_in1, col_in2 = st.columns(2)
+        with col_in1:
+            st.markdown("<div style='font-size:0.86rem; font-weight:700; color:#003876; margin-bottom:6px;'>[매입 세금계산서 수취 관련]</div>", unsafe_allow_html=True)
+            chk_in_late = st.checkbox("⏳ 세금계산서 지연수취 (0.5%)", help="공급시기 경과 후 확정신고기한 내 수취 (매입세액공제 가능)", key="chk_in_late")
+            chk_in_fake = st.checkbox("🚨 가공(무거래) 세금계산서 수취 (3.0%)", help="매입세액 전액 불공제 + 3% 가산세", key="chk_in_fake")
+            chk_in_shadow = st.checkbox("👤 위장(타인명의) 세금계산서 수취 (2.0%)", help="매입세액 전액 불공제 + 2% 가산세", key="chk_in_shadow")
+
+        with col_in2:
+            st.markdown("<div style='font-size:0.86rem; font-weight:700; color:#005B45; margin-bottom:6px;'>[매입처별 합계표 관련]</div>", unsafe_allow_html=True)
+            chk_in_sum = st.checkbox("📊 매입처별 합계표 미제출/부실기재 (0.5%)", help="매입처별 합계표 미제출 또는 부실기재", key="chk_in_sum")
+
+        if chk_in_late: selected_violations.append("세금계산서_지연수취")
+        if chk_in_fake: selected_violations.append("가공_세금계산서_수취")
+        if chk_in_shadow: selected_violations.append("위장_세금계산서_수취")
+        if chk_in_sum: selected_violations.append("매입처별합계표_불성실")
+
+    st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+
+    # 3. 국세기본법 신고불성실 및 납부지연 가산세 연동 옵션
+    with st.expander("➕ [선택] 부가가치세 과소신고 및 납부지연 가산세 동시 계산 (수정신고 감면 적용)", expanded=False):
+        col_rep1, col_rep2, col_rep3 = st.columns([2, 2, 2.5])
+        with col_rep1:
+            use_rep = st.checkbox("과소신고/납부지연 포함", value=False, key="chk_use_rep")
+        with col_rep2:
+            delay_days_val = st.number_input("납부지연 경과일수 (일)", min_value=0, max_value=3650, value=90, step=10, key="in_delay_days")
+        with col_rep3:
+            amend_opt = st.selectbox(
+                "수정신고 시점 (국세기본법 제48조 감면)",
+                options=["1개월이내 (75% 감면)", "3개월이내 (50% 감면)", "6개월이내 (30% 감면)", "1년이내 (20% 감면)", "1년6개월이내 (15% 감면)", "2년이내 (10% 감면)", "미신고/경정 (감면 없음)"],
+                index=1,
+                key="sb_amend_opt"
+            )
+            amend_code = amend_opt.split()[0]
+
+    # 가산세 엔진 계산 실행 (거래일자 전달)
+    pen_engine = VatPenaltyEngine()
+    calc_res = pen_engine.calculate(
+        supply_value=v_supply_val,
+        trans_type=trans_keyword,
+        selected_violations=selected_violations,
+        include_reporting_penalty=st.session_state.get("chk_use_rep", False),
+        unpaid_tax_amount=v_tax_val,
+        delay_days=delay_days_val if st.session_state.get("chk_use_rep", False) else 0,
+        is_fraud=("가공_세금계산서_발급" in selected_violations or "가공_세금계산서_수취" in selected_violations),
+        amendment_period=amend_code if st.session_state.get("chk_use_rep", False) else "미신고/경정",
+        transaction_date=trans_date_str
+    )
+
+    # 4. 가산세 계산 결과 및 중복배제 리포트
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+    grand_tot = calc_res["grand_total"]
+    vat_tot = calc_res["vat_penalty_total"]
+    rep_tot = calc_res["reporting_penalty_total"]
+    saved_tot = calc_res["saved_amount"]
+
+    # 핵심 총괄 카드 (기준일 및 검증 상태 표시)
+    st.markdown(f"""
+    <div style="background:#FFF1F2; border:1px solid #FECDD3; border-left:5px solid #E61E2B; border-radius:8px; padding:16px 20px; margin-bottom:18px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+            <div>
+                <span style="font-size:0.84rem; font-weight:700; color:#9F1239; background:#FFE4E6; padding:3px 8px; border-radius:4px;">
+                    🚨 최종 부담 가산세 합계
+                </span>
+                <span style="font-size:0.84rem; font-weight:700; color:#1E3A8A; background:#DBEAFE; padding:3px 8px; border-radius:4px; margin-left:6px;">
+                    공급가액 {v_supply_val:,}원 기준
+                </span>
+                <span style="font-size:0.80rem; font-weight:700; color:#065F46; background:#ECFDF5; border:1px solid #A7F3D0; padding:3px 8px; border-radius:4px; margin-left:6px;">
+                    📅 적용 기준일: {calc_res['transaction_date']} (verified)
+                </span>
+                <div style="font-size:1.6rem; font-weight:900; color:#E61E2B; margin-top:6px;">
+                    {int(grand_tot):,} 원
+                </div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:0.86rem; color:#475569;">
+                    · 세금계산서 가산세: <b>{int(vat_tot):,}원</b><br>
+                    · 신고/납부지연 가산세: <b>{int(rep_tot):,}원</b>
+                </div>
+                <div style="font-size:0.84rem; font-weight:700; color:#005B45; margin-top:4px;">
+                    🛡️ 중복배제로 절감된 금액: <b>{int(saved_tot):,}원</b>
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 5. 중복적용 배제 상세 내역 박스
+    if calc_res["excluded_records"]:
+        st.markdown("""
+        <div style="background:#ECFDF5; border:1px solid #A7F3D0; border-radius:8px; padding:12px 16px; margin-bottom:16px;">
+            <div style="font-size:0.90rem; font-weight:700; color:#065F46; display:flex; align-items:center; gap:6px;">
+                <span>🛡️ 부가가치세법 제60조 제9항에 따른 '중복적용 배제' 면제 내역</span>
+            </div>
+            <div style="font-size:0.82rem; color:#047857; margin-top:4px;">
+                동일한 거래 행위에 대해 이중 처벌을 방지하기 위하여 아래 가산세 항목은 세법에 의해 자동으로 부과 면제되었습니다:
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        for ex in calc_res["excluded_records"]:
+            st.markdown(f"""
+            <div style="background:#F8FAFC; border:1px dashed #CBD5E1; border-radius:6px; padding:10px 14px; margin-bottom:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-weight:700; color:#64748B; text-decoration:line-through;">
+                        {ex['item']['name']} ({ex['item']['rate_str']}) - {int(ex['item']['raw_amount']):,}원
+                    </span>
+                    <span style="font-size:0.80rem; font-weight:700; background:#DCFCE7; color:#005B45; padding:2px 8px; border-radius:4px;">
+                        [중복배제 면제]
+                    </span>
+                </div>
+                <div style="font-size:0.80rem; color:#475569; margin-top:4px;">
+                    ⚖️ 면제 근거: {ex['reason']}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # 6. 최종 부과 대상 가산세 명세서 테이블 (요구사항 7: 적용 세율, 기준일, 법령근거, 마지막 확인일 표시)
+    st.markdown("#### 📋 최종 고지 대상 가산세 상세 명세표 (법령 메타데이터 포함)")
+    table_items = []
+    for it in calc_res["active_vat_items"]:
+        src_link = f"<a href='{it['source_url']}' target='_blank' style='color:#003876; text-decoration:underline;'>법제처 원문</a>" if it.get("source_url") else "-"
+        table_items.append({
+            "가산세 구분": it["category"],
+            "적용 항목명": it["name"],
+            "적용 세율": f"<b>{it['rate_str']}</b>",
+            "기준일": it.get("effective_start", "-"),
+            "마지막 확인일": it.get("last_verified_date", "-"),
+            "과세표준": f"{int(it['base']):,} 원",
+            "산출 가산세액": f"<b style='color:#E61E2B;'>{int(it['final_amount']):,} 원</b>",
+            "법령 근거": f"{it['legal_basis']} ({src_link})"
+        })
+
+    for rp in calc_res["reporting_items"]:
+        src_link = f"<a href='{rp.get('source_url', '')}' target='_blank' style='color:#003876; text-decoration:underline;'>법제처 원문</a>" if rp.get("source_url") else "-"
+        table_items.append({
+            "가산세 구분": rp["category"],
+            "적용 항목명": rp["name"],
+            "적용 세율": f"<b>{rp['rate_str']}</b>",
+            "기준일": calc_res["transaction_date"],
+            "마지막 확인일": rp.get("last_verified_date", "2026-01-01"),
+            "과세표준": f"{int(rp['base']):,} 원",
+            "산출 가산세액": f"<b style='color:#E61E2B;'>{int(rp['final_amount']):,} 원</b>",
+            "법령 근거": f"{rp['legal_basis']} ({rp['reduction_str']}) ({src_link})"
+        })
+
+    if table_items:
+        df_pen = pd.DataFrame(table_items)
+        st.markdown(df_pen.to_html(escape=False, index=False), unsafe_allow_html=True)
+    else:
+        st.info("선택된 위반 항목이 없습니다. 상단에서 거래 위반 유형을 체크해 주세요.")
+
+    st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
+
+    # 7. 사내 보고용 텍스트 클립보드 복사
+    clip_lines = [
+        f"■ [CJ프레시웨이] 부가가치세 세금계산서 가산세 검토 보고서",
+        f"1. 검토 대상 거래: {trans_keyword} 거래 (공급가액: {int(v_supply_val):,}원 / 부가세: {v_tax_val:,}원)",
+        f"2. 적용 거래일자/기준일: {calc_res['transaction_date']} (공식 DB 검증된 세율 적용)",
+        f"3. 최종 예상 가산세 합계: {int(grand_tot):,} 원",
+        f"   - 세금계산서 관련 가산세: {int(vat_tot):,} 원",
+        f"   - 신고불성실 및 납부지연 가산세: {int(rep_tot):,} 원",
+        f"",
+        f"4. 중복적용 배제(법 제60조 제9항) 절감액: {int(saved_tot):,} 원",
+        f"5. 세부 적용 항목:"
+    ]
+    for it in calc_res["active_vat_items"]:
+        clip_lines.append(f"   · {it['name']} (적용세율: {it['rate_str']} | 기준일: {it.get('effective_start','-')} | 확인일: {it.get('last_verified_date','-')}): {int(it['final_amount']):,}원 [{it['legal_basis']}]")
+    for rp in calc_res["reporting_items"]:
+        clip_lines.append(f"   · {rp['name']} (적용세율: {rp['rate_str']}): {int(rp['final_amount']):,}원 [{rp['legal_basis']}]")
+
+    if calc_res["excluded_records"]:
+        clip_lines.append("\n6. 중복배제 면제 항목:")
+        for ex in calc_res["excluded_records"]:
+            clip_lines.append(f"   · [면제] {ex['item']['name']} ({int(ex['item']['raw_amount']):,}원) - 사유: {ex['reason']}")
+
+    clip_lines.append("\n※ 본 검토서는 부가가치세법 제60조(가산세) 및 국세기본법 제47조~제48조(tax_rates.json 마스터)를 근거로 산출되었습니다.")
+    full_vat_clip = "\n".join(clip_lines)
+
+    col_cp_t, col_cp_b = st.columns([4, 1.5], vertical_alignment="center")
+    with col_cp_t:
+        st.markdown("##### 📄 사내 보고용 가산세 검토의견서 전문")
+    with col_cp_b:
+        render_copy_button(full_vat_clip, f"cp_vat_{hash(str(grand_tot))}")
+
+    st.code(full_vat_clip, language="markdown")
+
+# 화면 3: 판례 실시간 검색 및 AI 분석 뷰 (Search View)
+# =========================================================================
+else:
+    current_query = st.session_state.get("search_input", "").strip()
+    is_home = not bool(current_query)
+
+    # 서비스 헤더
+    if is_home:
+        st.markdown("""
+        <div class="hero-container">
+            <div class="cj-badge">
+                <span class="cj-dot"></span>
+                CJ FRESHWAY · TAX INTELLIGENCE
+            </div>
+            <div class="service-title">어떤 세무 상황이나 고민이 있으신가요?</div>
+            <div class="service-subtitle">
+                ChatGPT나 Claude처럼 <b>회사의 실제 상황을 편하게 설명(프롬프트 작성)</b>해 보세요.<br>
+                <b>Gemini AI</b>가 사실관계를 분석하여 법률 쟁점과 최적의 판례를 찾아 <b>실무 맞춤형 솔루션</b>을 브리핑해 드립니다.<br>
+                <div style="display:inline-flex; align-items:center; gap:6px; background:#F1F5F9; border:1px solid #CBD5E1; padding:3px 10px; border-radius:6px; font-size:0.78rem; color:#475569; margin-top:10px;">
+                    <span>📅 기준일: <b>2026-01-01</b> 귀속 세법</span>
+                    <span style="color:#94A3B8;">|</span>
+                    <span>※ 구체적 세무처리는 사실관계 확인 및 세무대리인 최종 검토 필요</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="compact-header">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <div class="cj-badge">
+                        <span class="cj-dot"></span>
+                        CJ FRESHWAY · TAX INTELLIGENCE
+                    </div>
+                    <div class="service-title">대화형 세무 상황 진단 & 판례 AI 분석</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # 컴팩트 미니멀 인라인 필터 툴바 (세목 칩 + 기관 칩 일체형 매립)
+    col_filt_tax, col_filt_cat = st.columns([5.5, 4.5], vertical_alignment="center")
+    
+    tax_pill_options = ["전체 세목", "🏢 법인세", "🧾 부가가치세", "👤 소득세·원천세"]
+    tax_pill_map = {
+        "전체 세목": "전체",
+        "🏢 법인세": "법인세",
+        "🧾 부가가치세": "부가가치세",
+        "👤 소득세·원천세": "소득세·원천세"
+    }
+    reverse_tax_map = {v: k for k, v in tax_pill_map.items()}
+
+    cat_pill_options = ["🏛️ 전체 기관", "⚖️ 법원 판례", "🏢 조세심판·행정청"]
+    cat_pill_map = {
+        "🏛️ 전체 기관": "전체",
+        "⚖️ 법원 판례": "판례",
+        "🏢 조세심판·행정청": "조세심판/행정청"
+    }
+    reverse_cat_map = {v: k for k, v in cat_pill_map.items()}
+
+    with col_filt_tax:
+        curr_tax = st.session_state.get("selected_tax_type", "전체")
+        chosen_pill = st.pills(
+            "세목 필터",
+            tax_pill_options,
+            default=reverse_tax_map.get(curr_tax, "전체 세목"),
+            label_visibility="collapsed",
+            key="tax_pills_selector"
+        )
+        if chosen_pill:
+            st.session_state["selected_tax_type"] = tax_pill_map.get(chosen_pill, "전체")
+
+    with col_filt_cat:
+        curr_cat = st.session_state.get("selected_category", "전체")
+        chosen_cat_pill = st.pills(
+            "기관 필터",
+            cat_pill_options,
+            default=reverse_cat_map.get(curr_cat, "🏛️ 전체 기관"),
+            label_visibility="collapsed",
+            key="cat_pills_selector"
+        )
+        if chosen_cat_pill:
+            st.session_state["selected_category"] = cat_pill_map.get(chosen_cat_pill, "전체")
+
+    category_choice = st.session_state.get("selected_category", "전체")
+
+    # 듀얼 입력 모드: [💬 자유 상황 질문] vs [📋 세무검토 상세 입력폼]
+    input_ver = st.session_state.get("input_version", 0)
+    current_search_input = st.session_state.get("search_input", "")
+
+    tab_input_free, tab_input_form = st.tabs(["💬 자유 상황 질문 프롬프트", "📋 세무검토 상세 입력폼 (7대 항목)"])
+
+    submitted = False
+    new_query_text = ""
+
+    with tab_input_free:
+        with st.form(key=f"search_form_free_{input_ver}", clear_on_submit=False):
+            query_text = st.text_area(
+                "세무 상황 프롬프트",
+                value=current_search_input,
+                placeholder="실제 회사 상황이나 세무 고민을 자유롭게 적어보세요.\n예) 거래처가 폐업해서 회수하지 못한 외상매출금 3천만원이 있는데, 올해 법인세 결산 시 바로 대손금으로 비용 인정받을 수 있을까요? 세무조사 대비 필요한 입증서류는 무엇인가요?",
+                label_visibility="collapsed",
+                height=110,
+                key=f"prompt_input_box_{input_ver}"
+            )
+            col_hint, col_submit = st.columns([5.2, 1.8], vertical_alignment="center")
+            with col_hint:
+                st.markdown("""
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:0.83rem; color:#64748B;">
+                    <span>💡 <b>상황 서술형 프롬프트</b> 지원</span>
+                    <span style="color:#CBD5E1;">|</span>
+                    <span>실행: <span class="key-badge">Ctrl</span> + <span class="key-badge">Enter</span></span>
+                    <span style="color:#CBD5E1;">|</span>
+                    <span>줄바꿈: <span class="key-badge">Shift</span> + <span class="key-badge">Enter</span></span>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_submit:
+                if st.form_submit_button("🚀 AI 분석 & 판례 매칭 ↵", use_container_width=True):
+                    submitted = True
+                    new_query_text = query_text.strip()
+
+    with tab_input_form:
+        st.markdown("""
+        <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:0.84rem; color:#334155;">
+            <b>📋 7대 핵심 사실관계 구조화 입력기</b>: 세목, 거래유형, 상대방, 금액, 과세기간, 보유증빙, 검토목적을 나누어 입력하시면 더 정밀한 법률 검토와 판례 매칭이 가능합니다.
+        </div>
+        """, unsafe_allow_html=True)
+        with st.form(key=f"search_form_structured_{input_ver}", clear_on_submit=False):
+            f_col1, f_col2, f_col3 = st.columns(3)
+            with f_col1:
+                form_tax = st.selectbox("1. 세목", ["법인세", "부가가치세", "소득세·원천세", "상속·증여세", "지방세/조세일반"], key=f"f_tax_{input_ver}")
+                form_trans = st.text_input("2. 거래 유형", placeholder="예: 외상매출금 대손, 사실과 다른 계산서, 특수관계인 대여금", key=f"f_trans_{input_ver}")
+            with f_col2:
+                form_party = st.text_input("3. 거래 상대방", placeholder="예: 폐업 법인(제3자), 대표이사(특수관계인)", key=f"f_party_{input_ver}")
+                form_amount = st.text_input("4. 거래 금액", placeholder="예: 30,000,000원 (VAT 별도)", key=f"f_amt_{input_ver}")
+            with f_col3:
+                form_period = st.text_input("5. 귀속 과세기간", placeholder="예: 2025년 2기, 2025 사업연도", key=f"f_period_{input_ver}")
+                form_evidence = st.text_input("6. 현재 보유 증빙", placeholder="예: 세금계산서, 폐업사실증명원, 계좌이체증", key=f"f_evi_{input_ver}")
+            
+            form_purpose = st.text_input("7. 구체적 검토 목적 및 세무 질의사항", placeholder="예: 결산 시 손금산입 적격성 및 세무조사 입증서류 확인", key=f"f_purp_{input_ver}")
+            
+            col_f_hint, col_f_sub = st.columns([5.2, 1.8], vertical_alignment="center")
+            with col_f_hint:
+                st.markdown("<span style='font-size:0.82rem; color:#64748B;'>※ 필수 항목(세목, 거래유형, 목적 등)을 빠짐없이 입력하시면 더 신뢰도 높은 검토의견이 산출됩니다.</span>", unsafe_allow_html=True)
+            with col_f_sub:
+                if st.form_submit_button("📋 구조화 검토의견 생성 ↵", use_container_width=True):
+                    # 사실관계 종합 텍스트 구성
+                    composed_query = (
+                        f"[{form_tax}] {form_trans} 건에 대한 세무 적격성 검토 요청입니다.\n"
+                        f"- 거래 상대방: {form_party or '미기재'}\n"
+                        f"- 거래 금액: {form_amount or '미기재'}\n"
+                        f"- 귀속 과세기간: {form_period or '해당 과세연도'}\n"
+                        f"- 현재 보유 증빙: {form_evidence or '확인 필요'}\n"
+                        f"- 세부 검토 목적 및 질의: {form_purpose or form_trans}"
+                    )
+                    submitted = True
+                    new_query_text = composed_query.strip()
+                    st.session_state["selected_tax_type"] = form_tax
+
+    if submitted and new_query_text:
+        st.session_state["search_input"] = new_query_text
+        current_query = new_query_text
+        is_home = False
+        st.rerun()
+
+    # 초기 홈 화면: 실무 상황 프롬프트 시나리오 카드
+    if is_home:
+        st.markdown("<div style='text-align:center; margin-top:24px; font-size:0.88rem; font-weight:700; color:#64748B;'>💡 클릭하여 실제 실무 시나리오 프롬프트 테스트해보기</div>", unsafe_allow_html=True)
+        
+        st.markdown("<div class='scenario-card-container'>", unsafe_allow_html=True)
+        col_c1, col_c2, col_c3 = st.columns(3)
+        with col_c1:
+            if st.button("🏢 법인세 · 외상매출금 대손 처리\n\n'거래처 부도로 회수 못한 외상대금, 올해 결산 시 대손금 손금산입 요건과 필수 증빙은?'", key="home_card_1", use_container_width=True):
+                sample_q1 = "거래처 부도로 회수하지 못한 외상매출금이 있는데 올해 법인세 결산 시 대손금 손금산입이 가능한지, 소멸시효 완성 전이라도 인정받으려면 어떤 입증서류가 필요한지 궁금합니다."
+                st.session_state["search_input"] = sample_q1
+                st.session_state["selected_tax_type"] = "법인세"
+                st.session_state["input_version"] = input_ver + 1
+                st.rerun()
+        with col_c2:
+            if st.button("🧾 부가가치세 · 세금계산서 불일치\n\n'실제 공급자와 계산서 발행자가 다른 경우, 매입세액공제와 가산세 감면 요건은?'", key="home_card_2", use_container_width=True):
+                sample_q2 = "실제 물품을 납품한 업체와 세금계산서를 발행한 사업자가 다른 사실과 다른 세금계산서 사건에서, 선의의 거래당사자로서 매입세액공제를 인정받기 위한 판례상 입증 요건이 궁금합니다."
+                st.session_state["search_input"] = sample_q2
+                st.session_state["selected_tax_type"] = "부가가치세"
+                st.session_state["input_version"] = input_ver + 1
+                st.rerun()
+        with col_c3:
+            if st.button("👤 소득세 · 대표이사 법인카드 사적사용\n\n'대표이사가 개인 용도로 결제한 법인카드 금액의 가지급금 인정이자 및 상여처분 기준은?'", key="home_card_3", use_container_width=True):
+                sample_q3 = "대표이사가 사적으로 사용한 법인카드 사용액을 가지급금으로 처리할 때 인정이자 익금산입 세무조정 기준과 대표자 상여처분을 피하기 위한 사내 정산 기준 판례가 궁금합니다."
+                st.session_state["search_input"] = sample_q3
+                st.session_state["selected_tax_type"] = "소득세·원천세"
+                st.session_state["input_version"] = input_ver + 1
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # 검색 실행 및 결과 렌더링
+    if current_query:
+        current_tax_type = st.session_state.get("selected_tax_type", "전체")
+        
+        # 1단계: Gemini AI 자연어 상황 분석 및 키워드 추출 (세션 캐싱)
+        intent_key = f"intent_v3_{hash(current_query)}"
+        if intent_key in st.session_state:
+            intent_data = st.session_state[intent_key]
+        else:
+            with st.spinner("🧠 1단계: Gemini AI가 입력하신 상황의 법률 쟁점과 최적 검색 키워드를 분석 중입니다..."):
+                intent_data = analyze_tax_situation(current_query)
+                st.session_state[intent_key] = intent_data
+
+        detected_tax = intent_data.get("tax_category", "조세일반")
+        raw_keywords = intent_data.get("search_keywords", [current_query])
+        core_issue = intent_data.get("core_issue", "")
+        
+        # 세목이 '전체'일 경우 AI가 판단한 세목 우선 반영
+        effective_tax = current_tax_type if current_tax_type != "전체" else detected_tax
+
+        # 🏷️ 하이브리드 키워드 풀 및 활성 선택 상태 관리
+        kw_pool_key = f"kw_pool_{hash(current_query)}"
+        kw_ver_key = f"kw_ver_{hash(current_query)}"
+        kw_ver = st.session_state.get(kw_ver_key, 0)
+        kw_pills_key = f"kw_pills_{hash(current_query)}_{kw_ver}"
+        kw_active_key = f"kw_active_{hash(current_query)}"
+
+        if kw_pool_key not in st.session_state:
+            # 초기 키워드 풀: AI 추천 키워드 + 원문 속 고유 대상 명사 (상품권 등)
+            init_pool = []
+            for k in raw_keywords:
+                for part in str(k).strip().split():
+                    cl = re.sub(r'(은|는|이|가|을|를|에|의|과|와|으로|로)$', '', part)
+                    if len(cl) >= 2 and cl not in init_pool and cl not in ["가능한가", "어떤가", "어떻게", "있는가", "지급한"]:
+                        init_pool.append(cl)
+            for token in re.findall(r'[가-힣]{2,}', current_query):
+                cl = re.sub(r'(은|는|이|가|을|를|에|의|과|와|으로|로)$', '', token)
+                if len(cl) >= 2 and cl not in init_pool and cl not in ["가능한가", "어떤가", "어떻게", "있는가", "지급한", "거래처", "인정이"]:
+                    init_pool.append(cl)
+            
+            st.session_state[kw_pool_key] = init_pool[:7]
+            st.session_state[kw_active_key] = list(init_pool[:7])
+
+        available_keywords = st.session_state.get(kw_pool_key, [])
+        
+        # 활성 선택 키워드 결정: pills 위젯 상호작용이 있었으면 위젯 값 동기화, 신규 렌더링이면 kw_active_key 사용
+        if kw_pills_key in st.session_state:
+            active_keywords = st.session_state[kw_pills_key]
+            st.session_state[kw_active_key] = active_keywords
+        else:
+            active_keywords = st.session_state.get(kw_active_key, available_keywords)
+
+        if not active_keywords:
+            active_keywords = available_keywords
+        keywords = active_keywords
+
+        # 2단계: 국가법령정보센터 실시간 다중 쿼리 검색 (활성 선택된 키워드 집합 반영)
+        kw_hash_str = "_".join(sorted(active_keywords))
+        search_cache_key = f"search_v4_{hash(current_query)}_{category_choice}_{current_tax_type}_{kw_hash_str}"
+        if search_cache_key in st.session_state:
+            search_res = st.session_state[search_cache_key]
+        else:
+            kw_str = ", ".join(active_keywords)
+            with st.spinner(f"🏛️ 2단계: 선택된 키워드({kw_str})로 국가법령정보센터 DB에서 판례를 실시간 탐색 중입니다..."):
+                search_res = search_real_law_data_multi(
+                    keywords=active_keywords,
+                    category=category_choice,
+                    tax_type=current_tax_type,
+                    oc_key=config.get_law_oc(),
+                    limit=result_limit,
+                    raw_query=current_query
+                )
+                st.session_state[search_cache_key] = search_res
+
+        results = search_res.get("items", [])
+        total_cnt = search_res.get("total", 0)
+        error_msg = search_res.get("error")
+        law_err_type = search_res.get("error_type", "LAW_API_ERROR")
+
+        # [오류 구분 1]: 국가법령정보센터 DRF API 오류 렌더링
+        if error_msg:
+            st.markdown(f'''
+            <div style="background:#FEF2F2; border:1.5px solid #FCA5A5; border-left:5px solid #DC2626; border-radius:10px; padding:16px 20px; margin:16px 0;">
+                <div style="font-weight:700; color:#991B1B; font-size:1.0rem; display:flex; align-items:center; gap:8px;">
+                    <span>🏛️</span> <span>[국가법령정보센터 DRF API 연동 오류]</span>
+                </div>
+                <div style="color:#B91C1C; font-size:0.90rem; margin-top:6px; line-height:1.6;">{error_msg}</div>
+                <div style="font-size:0.80rem; color:#7F1D1D; margin-top:8px;">💡 조치 안내: .env 파일의 <code>LAW_API_KEY</code>를 확인하시거나 공공 API 네트워크 상태를 점검해 주세요.</div>
+            </div>
+            ''', unsafe_allow_html=True)
+
+        # 3단계: 사용자 상황 맞춤 AI 종합 진단 브리핑 생성 (세션 캐싱)
+        briefing_key = f"briefing_{hash(current_query)}_{len(results)}"
+        if briefing_key in st.session_state:
+            briefing_res = st.session_state[briefing_key]
+        else:
+            with st.spinner("💡 3단계: 검색된 판례를 근거로 사용자 상황 맞춤형 세무 종합 솔루션을 생성 중입니다..."):
+                briefing_res = generate_situation_briefing(current_query, intent_data, results)
+                st.session_state[briefing_key] = briefing_res
+
+        # [오류 구분 2]: Google Gemini AI 모델 오류 렌더링
+        ai_error_msg = briefing_res.get("error")
+        if ai_error_msg:
+            st.markdown(f'''
+            <div style="background:#FAF5FF; border:1.5px solid #D8B4FE; border-left:5px solid #9333EA; border-radius:10px; padding:16px 20px; margin:16px 0;">
+                <div style="font-weight:700; color:#6B21A8; font-size:1.0rem; display:flex; align-items:center; gap:8px;">
+                    <span>🤖</span> <span>[Google Gemini AI 모델 처리 오류]</span>
+                </div>
+                <div style="color:#7E22CE; font-size:0.90rem; margin-top:6px; line-height:1.6;">{ai_error_msg}</div>
+                <div style="font-size:0.80rem; color:#581C87; margin-top:8px;">💡 조치 안내: .env 파일의 <code>GEMINI_API_KEY</code> 설정 또는 API 할당량(Quota) 상태를 점검해 주세요.</div>
+            </div>
+            ''', unsafe_allow_html=True)
+
+        # ================= [최상단] Gemini AI 상황 맞춤 종합 진단 브리핑 카드 =================
+        briefing_clip_text = build_briefing_clipboard_text(current_query, intent_data, briefing_res)
+        
+        kw_badges_html = "".join([f'<span class="keyword-pill">#{kw}</span>' for kw in keywords])
+
+        # 신호등 리스크 배지 생성 (들여쓰기 마크다운 코드블록 버그 방지)
+        r_level = briefing_res.get("risk_level", "중립/유의")
+        r_reason = briefing_res.get("risk_reason", "").strip()
+        if not r_reason or r_reason == "---":
+            r_reason = "사실관계 및 객관적 입증 증빙(계약서, 금융내역 등) 구비 여부에 따라 과세 여부가 갈립니다."
+
+        if "고위험" in r_level:
+            risk_tag_html = '<span class="risk-tag risk-tag-high">🔴 과세 리스크: 高 (주의 요망)</span>'
+            risk_box_cls = 'risk-badge-box risk-high'
+        elif "저위험" in r_level or "안전" in r_level:
+            risk_tag_html = '<span class="risk-tag risk-tag-low">🟢 과세 리스크: 低 (비용인정 유력)</span>'
+            risk_box_cls = 'risk-badge-box risk-low'
+        else:
+            risk_tag_html = '<span class="risk-tag risk-tag-medium">🟡 과세 리스크: 中 (증빙보강 필수)</span>'
+            risk_box_cls = 'risk-badge-box risk-medium'
+
+        risk_box_html = (
+            f'<div class="{risk_box_cls}">'
+            f'{risk_tag_html}'
+            f'<span style="font-size:0.88rem; font-weight:600; line-height:1.5;">{r_reason}</span>'
+            f'</div>'
+        )
+
+        situation_summary_str = intent_data.get('situation_summary', core_issue)
+
+        # 4단계 근거 강도 배지 생성
+        basis_strength = briefing_res.get("basis_strength", "유의 필요")
+        basis_rationale = briefing_res.get("basis_rationale", "판례 및 법령 종합 검토 결과")
+        
+        if "확정 가능" in basis_strength:
+            strength_badge_html = '<span style="background:#DCFCE7; color:#166534; border:1px solid #86EFAC; padding:4px 10px; border-radius:6px; font-weight:700; font-size:0.86rem;">🟢 근거 강도: 확정 가능</span>'
+        elif "고위험" in basis_strength:
+            strength_badge_html = '<span style="background:#FEE2E2; color:#991B1B; border:1px solid #FCA5A5; padding:4px 10px; border-radius:6px; font-weight:700; font-size:0.86rem;">🔴 근거 강도: 고위험</span>'
+        elif "추가확인" in basis_strength:
+            strength_badge_html = '<span style="background:#F1F5F9; color:#475569; border:1px solid #CBD5E1; padding:4px 10px; border-radius:6px; font-weight:700; font-size:0.86rem;">⚪ 근거 강도: 추가확인 필요</span>'
+        else:
+            strength_badge_html = '<span style="background:#FEF3C7; color:#92400E; border:1px solid #FCD34D; padding:4px 10px; border-radius:6px; font-weight:700; font-size:0.86rem;">🟡 근거 강도: 유의 필요</span>'
+
+        strength_box_html = (
+            f'<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#F8FAFC; border:1px solid #E2E8F0; padding:8px 14px; border-radius:8px; margin: 8px 0 12px 0;">'
+            f'{strength_badge_html}'
+            f'<span style="font-size:0.86rem; color:#334155; font-weight:600;">{basis_rationale}</span>'
+            f'</div>'
+        )
+
+        # 사실관계 7대 요소 배지 렌더링 (들여쓰기 제거하여 마크다운 코드블록 오인 방지)
+        s_facts = intent_data.get("structured_facts", {})
+        facts_pills_html = (
+            f'<div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:8px; padding:10px 14px; margin-bottom:10px;">'
+            f'<div style="font-size:0.80rem; font-weight:700; color:#64748B; margin-bottom:6px;">📋 추출된 사실관계 7대 핵심 요소</div>'
+            f'<div style="display:flex; flex-wrap:wrap; gap:6px; font-size:0.80rem;">'
+            f'<span style="background:#EFF6FF; color:#1D4ED8; padding:3px 8px; border-radius:4px;"><b>세목:</b> {s_facts.get("tax_category", detected_tax)}</span>'
+            f'<span style="background:#F0FDF4; color:#15803D; padding:3px 8px; border-radius:4px;"><b>거래유형:</b> {s_facts.get("trans_type", "미상")}</span>'
+            f'<span style="background:#FAF5FF; color:#7E22CE; padding:3px 8px; border-radius:4px;"><b>상대방:</b> {s_facts.get("counterparty", "미기재")}</span>'
+            f'<span style="background:#FEF2F2; color:#B91C1C; padding:3px 8px; border-radius:4px;"><b>금액:</b> {s_facts.get("amount", "미기재")}</span>'
+            f'<span style="background:#FFFBEB; color:#B45309; padding:3px 8px; border-radius:4px;"><b>과세기간:</b> {s_facts.get("tax_period", "해당 연도")}</span>'
+            f'<span style="background:#F1F5F9; color:#334155; padding:3px 8px; border-radius:4px;"><b>보유증빙:</b> {s_facts.get("evidence_held", "확인 필요")}</span>'
+            f'<span style="background:#F3F4F6; color:#1F2937; padding:3px 8px; border-radius:4px;"><b>검토목적:</b> {s_facts.get("purpose", "세무 적격성 검토")}</span>'
+            f'</div>'
+            f'</div>'
+        )
+
+        # 추가 확인 필요사항 경고 박스 (들여쓰기 제거하여 마크다운 코드블록 오인 방지)
+        missing_facts = intent_data.get("missing_facts", [])
+        missing_box_html = ""
+        if missing_facts:
+            missing_items_li = "".join([f"<li style='margin-bottom:3px;'>{item}</li>" for item in missing_facts])
+            missing_box_html = (
+                f'<div style="background:#FFFBEB; border:1.5px solid #FCD34D; border-left:5px solid #D97706; border-radius:8px; padding:12px 16px; margin: 10px 0 14px 0;">'
+                f'<div style="display:flex; align-items:center; gap:8px; font-weight:700; color:#B45309; font-size:0.92rem;">'
+                f'<span>⚠️</span> <span>[핵심 사실관계 추가 확인 필요사항] 결론 확정 전 필수 점검</span>'
+                f'</div>'
+                f'<div style="font-size:0.84rem; color:#92400E; margin-top:6px;">'
+                f'아래 사실관계가 확정되지 않은 상태이므로 최종 판단을 단정할 수 없으며, 과세관청의 처분 방향이 달라질 수 있습니다:'
+                f'</div>'
+                f'<ul style="margin: 6px 0 0 18px; padding:0; font-size:0.83rem; color:#78350F;">'
+                f'{missing_items_li}'
+                f'</ul>'
+                f'</div>'
+            )
+
+        briefing_card_html = (
+            f'<div class="ai-briefing-card">'
+            f'<div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">'
+            f'<div>'
+            f'<span class="ai-briefing-tag">✨ GEMINI AI 맞춤 세무 진단 솔루션</span>'
+            f'<div style="font-size:1.18rem; font-weight:800; color:#0F172A; margin: 4px 0 6px 0;">'
+            f'상황 분석: {situation_summary_str}'
+            f'</div>'
+            f'<div style="font-size:0.86rem; color:#475569; margin-bottom:8px;">'
+            f'세목 분류: <b style="color:#005B45;">[{detected_tax}]</b> | 핵심 쟁점: <b>{core_issue}</b>'
+            f'</div>'
+            f'<div style="margin-bottom:8px;">'
+            f'<span style="font-size:0.82rem; color:#64748B; margin-right:6px;">발굴 검색어:</span>'
+            f'{kw_badges_html}'
+            f'</div>'
+            f'</div>'
+            f'</div>'
+            f'{strength_box_html}'
+            f'{facts_pills_html}'
+            f'{missing_box_html}'
+            f'{risk_box_html}'
+            f'</div>'
+        )
+        st.markdown(briefing_card_html, unsafe_allow_html=True)
+
+        # 브리핑 상단 컨트롤 바 (복사 버튼 & 보관함 담기)
+        briefing_case_id = f"briefing_{abs(hash(current_query))}"
+        is_briefing_saved = briefing_case_id in st.session_state["saved_cases"]
+        
+        col_br_title, col_br_save, col_br_copy = st.columns([3.5, 1.4, 2.1], vertical_alignment="center")
+        with col_br_title:
+            st.markdown("<div style='font-size:0.95rem; font-weight:700; color:#005B45;'>📊 AI 세무전문가 종합 실무 의견서</div>", unsafe_allow_html=True)
+        with col_br_save:
+            btn_save_br_label = "★ 사례 보관 해제" if is_briefing_saved else "☆ 사례 보관함 저장"
+            if st.button(btn_save_br_label, key=f"btn_save_{briefing_case_id}", use_container_width=True):
+                if is_briefing_saved:
+                    del st.session_state["saved_cases"][briefing_case_id]
+                    save_saved_cases(st.session_state["saved_cases"])
+                    st.toast("세무검토 사례가 보관함에서 삭제되었습니다.", icon="🗑️")
+                    st.rerun()
+                else:
+                    # 중복 검사 실행
+                    is_dup, dup_msg, dup_id = check_duplicate_case(st.session_state["saved_cases"], None, current_query, briefing_case_id)
+                    if is_dup:
+                        st.warning(f"⚠️ {dup_msg}")
+                    
+                    # 실제 검색/인용된 판례 목록만 legal_references로 엄격 주입
+                    real_refs = []
+                    for c in briefing_res.get("cited_cases", []):
+                        if c.get("case_number"):
+                            real_refs.append({
+                                "type": "판례/예규",
+                                "title": c.get("title", ""),
+                                "case_number": c.get("case_number", ""),
+                                "court": c.get("court", ""),
+                                "date": c.get("date", ""),
+                                "link": c.get("link", ""),
+                                "source": c.get("source", "국가법령정보센터"),
+                                "prec_id": c.get("prec_id", "")
+                            })
+                    
+                    saved_br_item = {
+                        "case_id": briefing_case_id,
+                        "title": f"[{detected_tax}] {intent_data.get('situation_summary', current_query[:40])}",
+                        "tax_category": detected_tax,
+                        "issue_tags": [detected_tax] + [kw for kw in keywords[:4]],
+                        "risk_level": briefing_res.get("risk_level", "중립/유의"),
+                        "review_status": "검토중",
+                        "user_query": current_query,
+                        "facts_summary": intent_data.get("structured_facts", {}),
+                        "legal_references": real_refs,
+                        "ai_opinion": {
+                            "basis_strength": briefing_res.get("basis_strength", "유의 필요"),
+                            "basis_rationale": briefing_res.get("basis_rationale", "판례 및 법령 종합 검토"),
+                            "conclusion": briefing_res.get("conclusion", ""),
+                            "case_comparison": briefing_res.get("case_comparison", ""),
+                            "checklist": briefing_res.get("checklist", "")
+                        },
+                        "user_memo": "",
+                        "created_at": pd.Timestamp.now().strftime('%Y-%m-%d %H:%M'),
+                        "updated_at": pd.Timestamp.now().strftime('%Y-%m-%d %H:%M'),
+                        # 하위 호환
+                        "case_number": f"TAX-{pd.Timestamp.now().strftime('%m%d%H%M')}",
+                        "date": pd.Timestamp.now().strftime('%Y-%m-%d'),
+                        "court": "Gemini AI 세무검토",
+                        "source": "CJ프레시웨이 TAX AI",
+                        "prec_id": briefing_case_id,
+                        "link": "",
+                        "saved_at": pd.Timestamp.now().strftime('%Y-%m-%d %H:%M'),
+                        "ai_summary": {
+                            "legal_basis": briefing_res.get('conclusion', ''),
+                            "tax_office_view": "과세관청 입증 책임 및 법령 요건 엄격 적용",
+                            "taxpayer_view": "거래의 실질 및 합리적 경제 행위 소명",
+                            "court_decision": briefing_res.get('case_comparison', ''),
+                            "actionable_takeaway": briefing_res.get('checklist', '')
+                        }
+                    }
+                    st.session_state["saved_cases"][briefing_case_id] = saved_br_item
+                    save_saved_cases(st.session_state["saved_cases"])
+                    st.toast("📁 세무검토 사례 카드가 보관함에 안전하게 저장되었습니다!", icon="⭐")
+                    st.rerun()
+        with col_br_copy:
+            render_copy_button(briefing_clip_text, f"cp_{briefing_case_id}")
+
+        # 3대 섹션 노션 스타일 렌더링
+        st.markdown(f"""
+        <div class="notion-block nb-green">
+            <div class="notion-icon">⚖️</div>
+            <div class="notion-body">
+                <div class="notion-title">1. 세무 리스크 진단 및 핵심 결론</div>
+                {format_notion_content(briefing_res.get('conclusion', ''))}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_b_left, col_b_right = st.columns(2)
+        with col_b_left:
+            st.markdown(f"""
+            <div class="notion-block nb-cjblue">
+                <div class="notion-icon">🏛️</div>
+                <div class="notion-body">
+                    <div class="notion-title">2. 관련 실제 판례와의 비교 및 법원 판단 취지</div>
+                    {format_notion_content(briefing_res.get('case_comparison', ''))}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_b_right:
+            st.markdown(f"""
+            <div class="notion-block nb-orange">
+                <div class="notion-icon">💼</div>
+                <div class="notion-body">
+                    <div class="notion-title">3. 실무자 필수 증빙 체크리스트 & 행동 수칙</div>
+                    {format_notion_content(briefing_res.get('checklist', ''))}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # 📄 3가지 보고서 포맷 탭 (요약형 / 검토의견형 / 상세검토형) + 복사 및 TXT 다운로드
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:0.95rem; font-weight:700; color:#0F172A; margin-bottom:8px;'>📑 목적별 3대 세무 보고서 (클릭 시 복사 및 .txt 즉시 다운로드)</div>", unsafe_allow_html=True)
+        
+        rep_summary_txt = format_report_summary(intent_data, briefing_res)
+        rep_opinion_txt = format_report_opinion(intent_data, briefing_res)
+        rep_detailed_txt = format_report_detailed(intent_data, briefing_res)
+
+        tab_rep_sum, tab_rep_op, tab_rep_det = st.tabs(["📊 1. 요약형 (경영진 1분 보고)", "📝 2. 검토의견형 (팀내 실무 회신)", "📑 3. 상세검토형 (세무조사 방어/감사용)"])
+
+        with tab_rep_sum:
+            col_rs_c, col_rs_d = st.columns([1.5, 1.5], vertical_alignment="center")
+            with col_rs_c:
+                render_copy_button(rep_summary_txt, f"cp_rep_sum_{hash(current_query)}")
+            with col_rs_d:
+                st.download_button(
+                    label="💾 요약형 .txt 다운로드",
+                    data=rep_summary_txt.encode("utf-8"),
+                    file_name=f"CJ프레시웨이_세무요약보고서_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                    key=f"dl_rep_sum_{hash(current_query)}"
+                )
+            st.code(rep_summary_txt, language="markdown")
+
+        with tab_rep_op:
+            col_ro_c, col_ro_d = st.columns([1.5, 1.5], vertical_alignment="center")
+            with col_ro_c:
+                render_copy_button(rep_opinion_txt, f"cp_rep_op_{hash(current_query)}")
+            with col_ro_d:
+                st.download_button(
+                    label="💾 검토의견형 .txt 다운로드",
+                    data=rep_opinion_txt.encode("utf-8"),
+                    file_name=f"CJ프레시웨이_세무검토의견서_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                    key=f"dl_rep_op_{hash(current_query)}"
+                )
+            st.code(rep_opinion_txt, language="markdown")
+
+        with tab_rep_det:
+            col_rd_c, col_rd_d = st.columns([1.5, 1.5], vertical_alignment="center")
+            with col_rd_c:
+                render_copy_button(rep_detailed_txt, f"cp_rep_det_{hash(current_query)}")
+            with col_rd_d:
+                st.download_button(
+                    label="💾 상세검토형 .txt 다운로드",
+                    data=rep_detailed_txt.encode("utf-8"),
+                    file_name=f"CJ프레시웨이_세무심층검토보고서_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                    key=f"dl_rep_det_{hash(current_query)}"
+                )
+            st.code(rep_detailed_txt, language="markdown")
+
+        st.markdown("<hr style='border:none; border-top:1px solid #CBD5E1; margin: 24px 0 16px 0;'>", unsafe_allow_html=True)
+
+        # 상단 요약 바 & 다운로드 / 홈으로 가기 버튼
+        col_count, col_home, col_excel = st.columns([3.5, 1.0, 1.5], vertical_alignment="center")
+        with col_count:
+            tax_filter_str = f" · 세목: <b style='color:#005B45;'>{current_tax_type}</b>" if current_tax_type != "전체" else f" · 세목: <b style='color:#005B45;'>{detected_tax}</b>"
+            st.markdown(f"<div style='font-size:0.92rem; color:#1E293B; font-weight:600;'>🏛️ 발굴 판례 및 예규 총 <b>{total_cnt:,}건</b> (솔루션 인용 <b>{len(briefing_res.get('cited_cases', []))}건</b>{tax_filter_str})</div>", unsafe_allow_html=True)
+        with col_home:
+            if st.button("🔄 새 상황 질문", key="btn_reset_home", use_container_width=True, help="초기 홈 화면으로 돌아가기"):
+                st.session_state["search_input"] = ""
+                st.session_state["selected_tax_type"] = "전체"
+                st.session_state["input_version"] = st.session_state.get("input_version", 0) + 1
+                st.rerun()
+        with col_excel:
+            # 엑셀 다운로드: 인용 판례와 검색 결과를 통합하여 다운로드 지원
+            export_list = list(briefing_res.get("cited_cases", [])) + list(results)
+            if export_list:
+                df_export = pd.DataFrame(export_list)[["tax_category", "court", "case_number", "date", "title", "source", "link"]]
+                df_export.columns = ["세목", "기관/법원", "사건번호", "선고일자", "사건명(판결요지)", "출처", "원문링크"]
+                df_export = df_export.drop_duplicates(subset=["사건번호"])
+                
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    df_export.to_excel(writer, index=False, sheet_name='판례검색결과')
+                
+                st.download_button(
+                    label="📥 판례 엑셀 다운",
+                    data=buffer.getvalue(),
+                    file_name=f"세무판례_{current_tax_type}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+        # =========================================================================
+        # 📌 듀얼 탭 (Dual Tabs) 아키텍처: [솔루션 인용 핵심 판례] vs [국가법령 DB 추가 검색]
+        # =========================================================================
+        cited_cases = briefing_res.get("cited_cases", [])
+        tab_cited_title = f"📌 솔루션 인용 핵심 판례·예규 ({len(cited_cases)}건)"
+        tab_search_title = f"🔍 국가법령 DB 추가 직접 검색 ({total_cnt:,}건)"
+
+        tab_cited, tab_search = st.tabs([tab_cited_title, tab_search_title])
+
+        # ----------------- Tab 1: 솔루션 인용 핵심 판례·예규 -----------------
+        with tab_cited:
+            unverified_cnt = briefing_res.get("unverified_count", 0)
+            unverified_banner = ""
+            if unverified_cnt > 0:
+                unverified_banner = f"""
+                <div style="background:#FFFBEB; border:1.5px solid #FDE68A; border-left:4px solid #D97706; border-radius:8px; padding:11px 15px; margin-bottom:12px; font-size:0.83rem; color:#92400E; line-height:1.55;">
+                    <b>🛡️ 판례 인용 신뢰성 검증기 작동</b>: AI가 제안한 판례 중 <b>{unverified_cnt}건</b>은 이번 국가법령정보센터 실시간 검색 결과 풀에서 확인되지 않아 <b>'검색된 공식 DB 결과 내에서 확인되지 않음'</b>으로 판정하고 사건번호 표시를 안전하게 배제하였습니다. (아래 목록은 100% 실존하는 검증 판례입니다)
+                </div>
+                """
+
+            st.markdown(f"""
+            {unverified_banner}
+            <div style="background:#F0FDF4; border:1px solid #DCFCE7; border-left:4px solid #005B45; border-radius:6px; padding:10px 14px; margin-bottom:14px;">
+                <div style="font-size:0.88rem; font-weight:700; color:#005B45;">
+                    💡 Gemini AI 세무 진단 솔루션의 실제 판단 근거가 된 핵심 판례 및 예규 목록입니다.
+                </div>
+                <div style="font-size:0.80rem; color:#475569; margin-top:2px;">
+                    위 의견서에서 제시한 세무 리스크와 행동 수칙은 국가법령정보센터 실제 DB와 100% 일치함이 검증된 판례·예규만을 근거로 합니다.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if not cited_cases:
+                st.markdown(f"""
+                <div class="notion-block nb-gray" style="margin-top:10px;">
+                    <div class="notion-icon">📋</div>
+                    <div class="notion-body">
+                        <div class="notion-title">인용된 별도 사건 목록이 없습니다</div>
+                        위 종합 의견서 전문을 참고하시거나, '🔍 국가법령 DB 추가 직접 검색' 탭에서 법령정보센터의 원문 판례를 확인해 보세요.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                for c_idx, c_item in enumerate(cited_cases):
+                    render_case_card(c_item, c_idx, prefix="cited")
+
+        # ----------------- Tab 2: 국가법령 DB 추가 직접 검색 -----------------
+        with tab_search:
+            # 🏷️ [하이브리드 키워드 인터랙션] 키워드 태그 정밀 타격 바
+            active_kw_display = ", ".join(active_keywords) if active_keywords else "선택 없음"
+            st.markdown(f"""
+            <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:8px; padding:10px 14px; margin-bottom:12px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                    <div style="font-size:0.86rem; font-weight:700; color:#1E293B;">
+                        🏷️ 국가법령정보센터 DRF 실시간 연동 키워드 <span style="font-size:0.78rem; font-weight:normal; color:#64748B;">(태그를 클릭하여 켜고 끄거나 법률 단어를 추가하세요)</span>
+                    </div>
+                    <div style="font-size:0.80rem; color:#005B45; font-weight:600; background:#E6F4EA; padding:2px 8px; border-radius:4px;">
+                        선택 키워드: {active_kw_display}
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col_pills, col_add = st.columns([3.3, 2.1], vertical_alignment="center")
+            with col_pills:
+                chosen_pills = st.pills(
+                    "판례 키워드 태그",
+                    options=available_keywords,
+                    default=active_keywords,
+                    selection_mode="multi",
+                    key=kw_pills_key,
+                    label_visibility="collapsed"
+                )
+            with col_add:
+                with st.form(key=f"add_kw_form_{hash(current_query)}_{kw_ver}", clear_on_submit=True):
+                    c_in, c_btn = st.columns([1.8, 1.2], vertical_alignment="center")
+                    with c_in:
+                        new_kw_val = st.text_input("새 키워드 입력", placeholder="+ 새 키워드 입력", label_visibility="collapsed")
+                    with c_btn:
+                        btn_add_kw = st.form_submit_button("추가", use_container_width=True)
+                    if btn_add_kw and new_kw_val.strip():
+                        clean_new = new_kw_val.strip()
+                        if clean_new not in available_keywords:
+                            available_keywords.append(clean_new)
+                            st.session_state[kw_pool_key] = available_keywords
+                        cur_active = list(st.session_state.get(kw_active_key, available_keywords))
+                        if clean_new not in cur_active:
+                            cur_active.append(clean_new)
+                        st.session_state[kw_active_key] = cur_active
+                        st.session_state[kw_ver_key] = kw_ver + 1
+                        st.rerun()
+
+            st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+
+            # 국가법령정보센터 DRF 검색 결과 리스트 렌더링
+            if not results:
+                st.markdown(f"""
+                <div class="notion-block nb-gray" style="margin-top:20px;">
+                    <div class="notion-icon">🔍</div>
+                    <div class="notion-body">
+                        <div class="notion-title">입력하신 상황에 부합하는 {current_tax_type} 판례를 직접 매칭하지 못했습니다</div>
+                        상황 설명을 조금 더 구체적으로 작성해 주시거나 세목 필터를 '전체'로 변경해 보세요.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                for idx, item in enumerate(results):
+                    render_case_card(item, idx, prefix="search")

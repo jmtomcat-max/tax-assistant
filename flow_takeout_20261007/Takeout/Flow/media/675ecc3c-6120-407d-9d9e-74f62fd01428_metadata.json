@@ -1,0 +1,23 @@
+{
+  "mediaEntries": [{
+    "mediaId": "675ecc3c-6120-407d-9d9e-74f62fd01428",
+    "mediaTitle": "Tax assistant animation interfac…",
+    "mediaType": "VIDEO",
+    "source": "generated",
+    "project": "10월 06 - 09:44",
+    "projectId": "f3bc7300-7777-4645-9d25-1b56647df491",
+    "createdAt": "2026-10-05 19:17:20.573320-07",
+    "modelName": "Omni Flash",
+    "dimensions": {
+      "duration": "9.500s"
+    },
+    "videoOffset": {
+      "startOffset": "1.803921569s",
+      "endOffset": "8s"
+    },
+    "generationInputs": {
+      "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+      "parentMediaId": "c899b3ff-4649-4a3d-b8b2-426be681fa4e"
+    }
+  }]
+}

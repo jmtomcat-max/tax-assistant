@@ -1,0 +1,10 @@
+[0:v]
+delogo=x=332:y=405:w=105:h=42:show=0:enable='between(t,8.2000,8.2417)',drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='AI 답변':fontcolor=0x26322e:fontsize=20:x=339:y=415:enable='between(t,8.2000,8.2417)',
+delogo=x=349:y=405:w=105:h=42:show=0:enable='between(t,8.2417,8.2833)',drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='AI 답변':fontcolor=0x26322e:fontsize=20:x=356:y=415:enable='between(t,8.2417,8.2833)',
+delogo=x=371:y=405:w=105:h=42:show=0:enable='between(t,8.2833,8.3250)',drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='AI 답변':fontcolor=0x26322e:fontsize=20:x=378:y=415:enable='between(t,8.2833,8.3250)',
+delogo=x=384:y=405:w=105:h=42:show=0:enable='between(t,8.3250,8.3667)',drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='AI 답변':fontcolor=0x26322e:fontsize=20:x=391:y=415:enable='between(t,8.3250,8.3667)',
+delogo=x=390:y=405:w=105:h=42:show=0:enable='between(t,8.3667,8.4083)',drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='AI 답변':fontcolor=0x26322e:fontsize=20:x=397:y=415:enable='between(t,8.3667,8.4083)',
+delogo=x=395:y=405:w=105:h=42:show=0:enable='between(t,8.4083,8.4500)',drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='AI 답변':fontcolor=0x26322e:fontsize=20:x=402:y=415:enable='between(t,8.4083,8.4500)',
+delogo=x=398:y=405:w=105:h=42:show=0:enable='between(t,8.4500,8.4917)',drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='AI 답변':fontcolor=0x26322e:fontsize=20:x=405:y=415:enable='between(t,8.4500,8.4917)',
+delogo=x=401:y=405:w=105:h=42:show=0:enable='between(t,8.4917,8.5333)',drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='AI 답변':fontcolor=0x26322e:fontsize=20:x=408:y=415:enable='between(t,8.4917,8.5333)',
+delogo=x=402:y=405:w=105:h=42:show=0:enable='between(t,8.5333,10)',drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='AI 답변':fontcolor=0x26322e:fontsize=20:x=409:y=415:enable='between(t,8.5333,10)'[v]

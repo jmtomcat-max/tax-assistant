@@ -1,0 +1,21 @@
+{
+  "mediaEntries": [{
+    "mediaId": "f33d91f3-f8f1-414c-be16-3dba62e45326",
+    "mediaTitle": "image.png",
+    "mediaType": "IMAGE",
+    "source": "generated",
+    "project": "10월 06 - 09:44",
+    "projectId": "f3bc7300-7777-4645-9d25-1b56647df491",
+    "createdAt": "2026-10-05 18:16:32.358-07",
+    "modelName": "Nano Banana 2 Lite",
+    "dimensions": {
+      "width": 1376,
+      "height": 768
+    },
+    "generationInputs": {
+      "prompt": "Here is the translated image prompt with the exact Korean text preserved:\n\n\"A professional dark green themed diagram. At the top, clear, sharp, and properly spaced Korean text that says exactly: \u0027데이터는 많지만, 리뷰 과정은 간단합니다.\u0027 In the center, perfectly spelled English text: \u0027FROM SEARCH TO ORGANIZATIONAL KNOWLEDGE\u0027. The boxes labeled \u0027외부 자료\u0027 and \u0027내부 경험\u0027 remain unchanged.\"",
+      "aspectRatio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+      "parentMediaId": "a6ffc12c-9f0c-4f54-b784-66717c699afa"
+    }
+  }]
+}

@@ -1,0 +1,6 @@
+[0:v]trim=start=13:end=23,setpts=PTS-STARTPTS,split=2[base][patchsrc];
+[patchsrc]crop=w=48:h=48:x=875:y=330[patch];
+[base][patch]overlay=x=818:y=258:enable='between(t,2.2,9.8)',
+drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='험':fontcolor=0x172f2b:fontsize=39:x=816:y=254:enable='between(t,2.2,9.8)'[v]
+;
+[0:a]atrim=start=13:end=23,asetpts=PTS-STARTPTS[a]

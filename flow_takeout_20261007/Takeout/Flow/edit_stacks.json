@@ -1,0 +1,53 @@
+{
+  "editStacks": [{
+    "stackName": "Tax assistant animation interfac…",
+    "project": "10월 06 - 09:44",
+    "projectId": "f3bc7300-7777-4645-9d25-1b56647df491",
+    "primaryMediaId": "5dc83a96-c5de-45b8-9137-2d748b4cbe9b",
+    "editStackMedia": [{
+      "mediaId": "b16034b2-3e95-4376-bcdd-93ad3080c826",
+      "prompt": "",
+      "createdAt": "2026-10-05 19:15:24.474912-07"
+    }, {
+      "mediaId": "5dc83a96-c5de-45b8-9137-2d748b4cbe9b",
+      "parentMediaId": "b16034b2-3e95-4376-bcdd-93ad3080c826",
+      "prompt": "",
+      "createdAt": "2026-10-05 19:17:20.573320-07"
+    }]
+  }, {
+    "stackName": "image.png",
+    "project": "10월 06 - 09:44",
+    "projectId": "f3bc7300-7777-4645-9d25-1b56647df491",
+    "collectionId": "",
+    "primaryMediaId": "f33d91f3-f8f1-414c-be16-3dba62e45326",
+    "editStackMedia": [{
+      "mediaId": "6d9401a6-7d01-4217-9b05-8bcf10c590a9",
+      "createdAt": "2026-10-05 18:13:32.209287-07"
+    }, {
+      "mediaId": "a6ffc12c-9f0c-4f54-b784-66717c699afa",
+      "parentMediaId": "6d9401a6-7d01-4217-9b05-8bcf10c590a9",
+      "prompt": "Professional presentation slide with a dark green background. Top text in white Korean: \u0027데이터는 많지만, 리뷰 과정은 간단합니다.\u0027 Below are two light grey rectangular boxes. The left box contains the Korean text \u0027외부 자료\u0027. The right box contains the Korean text \u0027내부 경험\u0027. Between and within the layout, English text reads \u0027FROM SEARCH TO ORGANIZATIONAL KNOWLEDGE\u0027. Maintain the exact layout, color scheme, and graphic style of the reference image but fix all the typos.",
+      "createdAt": "2026-10-05 18:15:03.411889-07"
+    }, {
+      "mediaId": "f33d91f3-f8f1-414c-be16-3dba62e45326",
+      "parentMediaId": "a6ffc12c-9f0c-4f54-b784-66717c699afa",
+      "prompt": "Here is the translated image prompt with the exact Korean text preserved:\n\n\"A professional dark green themed diagram. At the top, clear, sharp, and properly spaced Korean text that says exactly: \u0027데이터는 많지만, 리뷰 과정은 간단합니다.\u0027 In the center, perfectly spelled English text: \u0027FROM SEARCH TO ORGANIZATIONAL KNOWLEDGE\u0027. The boxes labeled \u0027외부 자료\u0027 and \u0027내부 경험\u0027 remain unchanged.\"",
+      "createdAt": "2026-10-05 18:16:32.358-07"
+    }]
+  }, {
+    "stackName": "Tax assistant animation interfac…",
+    "project": "10월 06 - 09:44",
+    "projectId": "f3bc7300-7777-4645-9d25-1b56647df491",
+    "primaryMediaId": "675ecc3c-6120-407d-9d9e-74f62fd01428",
+    "editStackMedia": [{
+      "mediaId": "c899b3ff-4649-4a3d-b8b2-426be681fa4e",
+      "prompt": "",
+      "createdAt": "2026-10-05 19:15:24.474912-07"
+    }, {
+      "mediaId": "675ecc3c-6120-407d-9d9e-74f62fd01428",
+      "parentMediaId": "c899b3ff-4649-4a3d-b8b2-426be681fa4e",
+      "prompt": "",
+      "createdAt": "2026-10-05 19:17:20.573320-07"
+    }]
+  }]
+}

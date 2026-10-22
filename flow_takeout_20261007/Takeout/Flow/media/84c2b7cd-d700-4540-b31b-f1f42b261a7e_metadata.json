@@ -1,0 +1,18 @@
+{
+  "mediaEntries": [{
+    "mediaId": "84c2b7cd-d700-4540-b31b-f1f42b261a7e",
+    "mediaTitle": "Creating motion graphics animation",
+    "mediaType": "VIDEO",
+    "source": "generated",
+    "project": "10월 06 - 09:44",
+    "projectId": "f3bc7300-7777-4645-9d25-1b56647df491",
+    "createdAt": "2026-10-05 18:08:02.903303-07",
+    "modelName": "Omni Flash",
+    "dimensions": {
+      "duration": "10s"
+    },
+    "generationInputs": {
+      "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE"
+    }
+  }]
+}

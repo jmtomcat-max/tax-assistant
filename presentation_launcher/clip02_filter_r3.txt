@@ -1,0 +1,14 @@
+[0:v]
+delogo=x=160:y=414:w=28:h=34:show=0:enable='between(t,8.0000,8.0417)',
+delogo=x=232:y=414:w=28:h=34:show=0:enable='between(t,8.0417,8.0833)',
+delogo=x=303:y=414:w=28:h=34:show=0:enable='between(t,8.0833,8.1250)',
+delogo=x=347:y=414:w=27:h=33:show=0:enable='between(t,8.1250,8.1667)',
+delogo=x=372:y=414:w=27:h=33:show=0:enable='between(t,8.1667,8.2083)',
+delogo=x=396:y=414:w=27:h=33:show=0:enable='between(t,8.2083,8.2500)',
+delogo=x=415:y=414:w=26:h=32:show=0:enable='between(t,8.2500,8.2917)',
+delogo=x=434:y=414:w=26:h=32:show=0:enable='between(t,8.2917,8.3333)',
+delogo=x=443:y=414:w=25:h=32:show=0:enable='between(t,8.3333,8.3750)',
+delogo=x=450:y=414:w=25:h=32:show=0:enable='between(t,8.3750,8.4167)',
+delogo=x=455:y=414:w=25:h=32:show=0:enable='between(t,8.4167,8.4583)',
+delogo=x=459:y=414:w=25:h=32:show=0:enable='between(t,8.4583,8.5000)',
+delogo=x=462:y=414:w=25:h=32:show=0:enable='between(t,8.5000,10)'[v]

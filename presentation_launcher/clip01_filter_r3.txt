@@ -1,0 +1,5 @@
+[0:v]
+delogo=x=108:y=238:w=198:h=96:show=0:enable='between(t,4.15,10)',
+delogo=x=684:y=238:w=205:h=96:show=0:enable='between(t,4.15,10)',
+drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='외부 자료':fontcolor=0x17312d@0.87:fontsize=35:x=130:y=259:enable='between(t,4.15,10)',
+drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='내부 경험':fontcolor=0x17312d@0.87:fontsize=35:x=708:y=259:enable='between(t,4.15,10)'[v]

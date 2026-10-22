@@ -1,0 +1,3 @@
+[0:v]
+delogo=x=398:y=405:w=112:h=42:show=0:enable='between(t,8.45,10)',
+drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='AI 답변':fontcolor=0x26322e:fontsize=21:x=409:y=415:enable='between(t,8.45,10)'[v]

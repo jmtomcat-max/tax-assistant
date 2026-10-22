@@ -1,0 +1,114 @@
+{
+  "metadata": {
+    "inquiry_time": "2026-09-10 10:18:40",
+    "detected_count": 5,
+    "notice": "※ 본 목록은 국세청 및 국가법령정보센터에서 감지된 변경 후보이며, 실제 계산에는 반영되지 않았습니다. 담당자가 확인 후 승인(review_status='verified')해야 실제 적용됩니다."
+  },
+  "detected_changes": [
+    {
+      "key": "세금계산서_미발급",
+      "name": "세금계산서 미발급 가산세",
+      "category": "vat_penalties",
+      "change_type": "세율/법령 개정 후보",
+      "current_rate_str": "2.0%",
+      "current_legal_basis": "부가가치세법 제60조 제2항 제1호",
+      "current_verified_date": "2026-01-01",
+      "detected_rate_str": "2.0%",
+      "detected_value": 0.02,
+      "detected_legal_basis": "부가가치세법 제60조 제2항 제1호",
+      "detected_effective_start": "2026-01-02",
+      "source_url": "https://www.law.go.kr/법령/부가가치세법/제60조",
+      "detected_at": "2026-09-10 10:18:40",
+      "reasons": [
+        "신규 시행일자 감지: 2026-01-02 시행 예정"
+      ],
+      "review_status": "needs_review",
+      "action_required": "세무/회계 담당자 확인 후 승인 시 tax_rates.json에 반영"
+    },
+    {
+      "key": "세금계산서_지연발급",
+      "name": "세금계산서 지연발급 가산세",
+      "category": "vat_penalties",
+      "change_type": "세율/법령 개정 후보",
+      "current_rate_str": "1.0%",
+      "current_legal_basis": "부가가치세법 제60조 제2항 제2호",
+      "current_verified_date": "2026-01-01",
+      "detected_rate_str": "1.0%",
+      "detected_value": 0.01,
+      "detected_legal_basis": "부가가치세법 제60조 제2항 제2호",
+      "detected_effective_start": "2026-01-02",
+      "source_url": "https://www.law.go.kr/법령/부가가치세법/제60조",
+      "detected_at": "2026-09-10 10:18:40",
+      "reasons": [
+        "신규 시행일자 감지: 2026-01-02 시행 예정"
+      ],
+      "review_status": "needs_review",
+      "action_required": "세무/회계 담당자 확인 후 승인 시 tax_rates.json에 반영"
+    },
+    {
+      "key": "가공_세금계산서_발급",
+      "name": "가공(무거래) 세금계산서 발급 가산세",
+      "category": "vat_penalties",
+      "change_type": "세율/법령 개정 후보",
+      "current_rate_str": "3.0%",
+      "current_legal_basis": "부가가치세법 제60조 제3항 제1호",
+      "current_verified_date": "2026-01-01",
+      "detected_rate_str": "3.0%",
+      "detected_value": 0.03,
+      "detected_legal_basis": "부가가치세법 제60조 제3항 제1호",
+      "detected_effective_start": "2026-01-02",
+      "source_url": "https://www.law.go.kr/법령/부가가치세법/제60조",
+      "detected_at": "2026-09-10 10:18:40",
+      "reasons": [
+        "신규 시행일자 감지: 2026-01-02 시행 예정"
+      ],
+      "review_status": "needs_review",
+      "action_required": "세무/회계 담당자 확인 후 승인 시 tax_rates.json에 반영"
+    },
+    {
+      "key": "납부지연_일일",
+      "name": "납부지연 가산세 (1일당)",
+      "category": "national_tax_penalties",
+      "change_type": "세율/법령 개정 후보",
+      "current_rate_str": "1일당 0.022% (10만분의 22, 연 8.03%)",
+      "current_legal_basis": "국세기본법 제47조의4 제1항 제1호 및 시행령 제27조의4",
+      "current_verified_date": "2026-01-01",
+      "detected_rate_str": "1일당 0.020% (10만분의 20으로 인하안)",
+      "detected_value": 0.0002,
+      "detected_legal_basis": "국세기본법 시행령 제27조의4 개정령",
+      "detected_effective_start": "2027-01-01",
+      "source_url": "https://www.law.go.kr/법령/국세기본법시행령/제27조의4",
+      "detected_at": "2026-09-10 10:18:40",
+      "reasons": [
+        "법령 근거 개정 감지: 기존 [국세기본법 제47조의4 제1항 제1호 및 시행령 제27조의4] -> 공식 [국세기본법 시행령 제27조의4 개정령]",
+        "신규 시행일자 감지: 2027-01-01 시행 예정"
+      ],
+      "review_status": "needs_review",
+      "action_required": "세무/회계 담당자 확인 후 승인 시 tax_rates.json에 반영"
+    },
+    {
+      "key": "접대비_경조사비_한도",
+      "name": "거래처 경조사비 손금 인정 한도",
+      "category": "statutory_thresholds",
+      "change_type": "세율/법령 개정 후보",
+      "current_rate_str": "건당 20만원",
+      "current_legal_basis": "법인세법 시행령 제41조 제1항 제1호",
+      "current_verified_date": "2026-01-01",
+      "detected_rate_str": "건당 30만원 (상향 개정안)",
+      "detected_value": 300000,
+      "detected_legal_basis": "법인세법 시행령 제41조 제1항",
+      "detected_effective_start": "2027-01-01",
+      "source_url": "https://www.law.go.kr/법령/법인세법시행령/제41조",
+      "detected_at": "2026-09-10 10:18:40",
+      "reasons": [
+        "법정 한도 변경 감지: 기존 건당 20만원 -> 공식 건당 30만원 (상향 개정안)",
+        "법령 근거 개정 감지: 기존 [법인세법 시행령 제41조 제1항 제1호] -> 공식 [법인세법 시행령 제41조 제1항]",
+        "신규 시행일자 감지: 2027-01-01 시행 예정"
+      ],
+      "review_status": "applied",
+      "action_required": "세무/회계 담당자 확인 후 승인 시 tax_rates.json에 반영",
+      "applied_at": "2026-09-10 10:18:40",
+      "verified_by": "CJ세무팀장"
+    }
+  ]
+}

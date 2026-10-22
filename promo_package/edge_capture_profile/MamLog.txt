@@ -1,0 +1,12 @@
+[2026-10-06T00:57:25.502Z] [INFO] ========================================================================================================================
+[2026-10-06T00:57:25.502Z] [INFO] Initializing MAM Client.
+App: com.microsoft.edge 154.0.4258.53
+SDK: 2.1.367.0
+OS: windows 10.0.26200.9448
+DeviceType: Desktop
+Manufacturer: SAMSUNG ELECTRONICS CO., LTD.
+Model: 760XDA
+Telemetry: yes
+Managed device support: enabled
+[2026-10-06T00:57:25.513Z] [INFO] Telemetry session 3b93273e-1d75-40ab-9d7a-8049dd45fdaf.
+[2026-10-06T00:57:25.515Z] [INFO] Initializing cache (v1).

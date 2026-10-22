@@ -1,0 +1,517 @@
+# -*- coding: utf-8 -*-
+"""
+국가법령정보센터(law.go.kr) 공식 Open API 실시간 연동 모듈
+- 인증키: config.get_law_oc() 환경변수 연동
+- 실시간 판례, 국세법령정보시스템 연계 판결/결정례 검색
+"""
+import requests
+import xml.etree.ElementTree as ET
+import re
+import urllib.parse
+from typing import List, Dict, Any, Optional
+
+DRF_SEARCH_URL = "https://www.law.go.kr/DRF/lawSearch.do"
+DRF_SERVICE_URL = "https://www.law.go.kr/DRF/lawService.do"
+import config
+DEFAULT_OC = config.get_law_oc()
+
+def detect_tax_category(title: str, case_no: str = "", full_text: str = "") -> str:
+    """
+    사건명, 사건번호, 요지 텍스트를 기반으로 세목(법인세/부가가치세/소득세 등)을 자동 분류
+    """
+    combined = f"{title} {case_no} {full_text}".lower()
+    
+    # 1. 부가가치세
+    if any(k in combined for k in [
+        "부가가치세", "부가세", "매입세액", "매출세액", "세금계산서", 
+        "영세율", "의제매입", "신용카드매출전표", "간이과세", "대손세액",
+        "에누리", "공급가액", "매출에누리"
+    ]):
+        return "부가가치세"
+    
+    # 2. 법인세
+    if any(k in combined for k in [
+        "법인세", "법인세등", "가지급금", "인정이자", "손금", "익금", 
+        "부당행위", "부당행위계산", "대손금", "대손", "감가상각", "접대비", 
+        "업무용승용차", "유보", "사외유출", "기타사외유출", "연구개발비", 
+        "이월결손금", "특수관계인", "합병평가차익", "고유목적사업준비금", "외국법인",
+        "매출누락", "추계", "추계산정", "추계결정", "추계과세", "판매장려금"
+    ]):
+        return "법인세"
+    
+    # 3. 소득세·원천세
+    if any(k in combined for k in [
+        "소득세", "원천징수", "원천세", "종합소득세", "양도소득세", "근로소득", 
+        "퇴직소득", "배당소득", "이자소득", "인정상여", "기타소득", "사업소득", 
+        "연말정산", "지급명세서", "사례금", "배당"
+    ]):
+        return "소득세·원천세"
+    
+    # 4. 상속·증여세
+    if any(k in combined for k in ["상속세", "증여세", "증여의제", "명의신탁"]):
+        return "상속·증여세"
+
+    # 5. 지방세
+    if any(k in combined for k in ["지방세", "취득세", "재산세", "등록면허세", "주민세"]):
+        return "지방세"
+
+    return "조세일반"
+
+
+def fetch_prec_from_drf(query: str, oc: str, display: int = 30) -> List[Dict[str, Any]]:
+    """DRF API 단일 검색 실행 및 파싱 헬퍼"""
+    params = {
+        "OC": oc,
+        "target": "prec",
+        "type": "XML",
+        "query": query,
+        "display": min(display, 100) # 한 번에 더 많은 데이터를 안전하게 가져오도록 상한 상향
+    }
+    items = []
+    try:
+        # 🚨 최적화: 공공 API 타임아웃 방어를 위해 연결 3초, 읽기 12초로 넉넉하게 설정
+        resp = requests.get(DRF_SEARCH_URL, params=params, timeout=(3.05, 12.0))
+        if resp.status_code != 200:
+            return items
+
+        root = ET.fromstring(resp.content)
+        for p in root.findall("prec"):
+            prec_id = p.findtext("판례일련번호") or ""
+            title = p.findtext("사건명") or "제목 없음"
+            case_no = p.findtext("사건번호") or "번호 없음"
+            date_str = p.findtext("선고일자") or "일자 미상"
+            court = p.findtext("법원명") or ""
+            case_type = p.findtext("사건종류명") or "조세/행정"
+            source = p.findtext("데이터출처명") or "국가법령정보센터"
+            detail_link = p.findtext("판례상세링크") or ""
+            
+            display_court = court
+            if not display_court:
+                if "행정법원" in case_no:
+                    display_court = "서울행정법원"
+                elif "고법" in case_no or "고등법원" in case_no:
+                    display_court = "고등법원"
+                elif "대법원" in case_no or "두" in case_no or "다" in case_no:
+                    display_court = "대법원"
+                elif "심사" in case_no:
+                    display_court = "국세청(심사)"
+                elif "조심" in case_no:
+                    display_court = "조세심판원"
+                else:
+                    display_court = source
+
+            if prec_id:
+                web_link = f"https://www.law.go.kr/LSW/precInfoP.do?precSeq={prec_id}"
+            elif detail_link.startswith("/"):
+                web_link = f"https://www.law.go.kr{detail_link}"
+            else:
+                q_safe = urllib.parse.quote(case_no or title)
+                web_link = f"https://www.law.go.kr/precSc.do?menuId=1&query={q_safe}"
+
+            tax_cat = detect_tax_category(title, case_no)
+
+            items.append({
+                "category": case_type,
+                "title": title,
+                "case_number": case_no,
+                "date": date_str,
+                "court": display_court,
+                "source": source,
+                "prec_id": prec_id,
+                "link": web_link,
+                "tax_category": tax_cat,
+                "summary": title,
+                "full_text": f"【사건명】 {title}\n【사건번호】 {case_no}\n【선고일자】 {date_str}\n【기관/법원】 {display_court}\n【세목】 {tax_cat}\n【출처】 {source}\n【상세링크】 {web_link}"
+            })
+    except Exception:
+        pass
+    return items
+
+
+def search_real_law_data(
+    query: str,
+    category: str = "전체",
+    tax_type: str = "전체",
+    oc_key: Optional[str] = None,
+    limit: int = 15,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    국가법령정보센터 DRF API를 실시간 호출하여 실제 판례/결정례를 가져오고 세목별로 정밀 필터링합니다.
+    """
+    oc = (oc_key or config.get_law_oc()).strip()
+    if not oc:
+        return {
+            "total": 0,
+            "items": [],
+            "error_type": "LAW_API_ERROR",
+            "error": "[국가법령정보센터 API 설정 오류] 법제처 Open API 사용자 인증키(OC)가 설정되지 않았습니다. .env 파일에 LAW_API_KEY를 입력해 주세요."
+        }
+
+    clean_query = query.strip()
+    if not clean_query:
+        return {"total": 0, "items": [], "error": None}
+
+    try:
+        # 1. 기본 쿼리로 1차 검색
+        items_dict = {}
+        first_items = fetch_prec_from_drf(clean_query, oc, display=40)
+        for it in first_items:
+            key = it.get("prec_id") or it.get("case_number")
+            items_dict[key] = it
+
+        # 2. 특정 세목이 지정된 경우, 세목 결합 쿼리로 2차 보강 검색
+        if tax_type != "전체":
+            tax_keyword_map = {
+                "법인세": "법인세",
+                "부가가치세": "부가가치세",
+                "소득세·원천세": "소득세"
+            }
+            mapped_kw = tax_keyword_map.get(tax_type, tax_type)
+            if mapped_kw not in clean_query:
+                sec_query = f"{mapped_kw} {clean_query}"
+                sec_items = fetch_prec_from_drf(sec_query, oc, display=20)
+                for it in sec_items:
+                    key = it.get("prec_id") or it.get("case_number")
+                    if key not in items_dict:
+                        items_dict[key] = it
+
+        all_items = list(items_dict.values())
+
+        # 3. 기관 구분 필터 (전체 / 판례 / 조세심판/행정청)
+        filtered_by_cat = []
+        for it in all_items:
+            if category == "전체":
+                filtered_by_cat.append(it)
+            elif category == "판례" and ("법원" in it["court"] or "대법원" in it["court"]):
+                filtered_by_cat.append(it)
+            elif category == "조세심판/행정청" and ("국세청" in it["court"] or "조세심판원" in it["court"]):
+                filtered_by_cat.append(it)
+            else:
+                filtered_by_cat.append(it)
+
+        # 4. 세목 필터 (전체 / 법인세 / 부가가치세 / 소득세·원천세)
+        if tax_type == "전체":
+            final_items = filtered_by_cat
+        else:
+            # 선택된 세목과 일치하는 항목 우선 필터링
+            matched_tax = [it for it in filtered_by_cat if it["tax_category"] == tax_type]
+            if matched_tax:
+                final_items = matched_tax
+            else:
+                # 완벽 매칭이 부족할 경우 관련 판례 표시
+                final_items = filtered_by_cat
+
+        total_cnt = len(final_items) if tax_type != "전체" else max(len(final_items), len(all_items))
+        return {"total": total_cnt, "items": final_items[:limit], "error": None}
+
+    except Exception as e:
+        return {"total": 0, "items": [], "error_type": "LAW_API_ERROR", "error": f"[국가법령정보센터 DRF API 통신 오류] {str(e)}"}
+
+
+def search_real_law_data_multi(
+    keywords: List[str],
+    category: str = "전체",
+    tax_type: str = "전체",
+    oc_key: Optional[str] = None,
+    limit: int = 15,
+    raw_query: Optional[str] = None,
+    intent_data: Optional[Dict[str, Any]] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    [핵심 고도화] 
+    다수의 API 호출로 인한 타임아웃을 방지하기 위해 
+    핵심 키워드를 결합한 'AND 조건 복합 쿼리' 단 1~2개로 압축하여 광범위하게 검색합니다.
+    """
+    oc = (oc_key or config.get_law_oc()).strip()
+    if not oc:
+        return {
+            "total": 0,
+            "items": [],
+            "error_type": "LAW_API_ERROR",
+            "error": "[API 오류] 법제처 Open API 사용자 인증키(OC)가 설정되지 않았습니다."
+        }
+
+    generic_biz_words = {
+        "거래처", "회사", "법인", "사업자", "대표자", "대표이사", "고객", "직원", "임직원", 
+        "납세자", "당사", "귀사", "상대방", "타인", "개인", "본인", "제3자", "모회사", "자회사"
+    }
+    generic_tax_words = {
+        "손금인정", "손금산입", "손금불산입", "익금산입", "과세여부", "세무처리", 
+        "비용처리", "공제여부", "인정여부", "과세표준", "신고여부", "적법여부", "처분여부"
+    }
+    stopwords = {
+        "목적", "사유", "주체", "행위", "객체", "조건", "금액", "결과", "쟁점", "현상",
+        "경우", "사항", "내용", "관련", "대상", "여부", "적용", "인정", "판단", "기준",
+        "해당", "문제", "발생", "검토", "상황", "원인", "이유", "방법", "형태", "요청",
+        "가능한가", "어떻게", "있는가", "대하여", "경우에", "위하여", "인정이", "처리되나",
+        "관련하여", "대하여", "따른", "의한", "위한", "가지", "대한", "통해"
+    }
+    josa_pattern = r'(은|는|이|가|을|를|에|의|과|와|으로|로|에서|에게|한테|도|만|까지|부터|으로서|으로써)$'
+
+    primary_topics = []
+    tax_issues = []
+    biz_contexts = []
+
+    if raw_query:
+        tokens = re.findall(r'[가-힣]{2,}', raw_query)
+        for tok in tokens:
+            cl = re.sub(josa_pattern, '', tok)
+            cl = re.sub(josa_pattern, '', cl)
+            if len(cl) < 2 or cl in stopwords:
+                continue
+            
+            if cl in generic_biz_words:
+                if cl not in biz_contexts: biz_contexts.append(cl)
+            elif any(k in cl for k in ["손금", "익금", "접대비", "가지급금", "부가가치", "대납", "정산", "선납"]):
+                if cl not in tax_issues: tax_issues.append(cl)
+            elif cl in generic_tax_words:
+                if cl not in tax_issues: tax_issues.append(cl)
+            else:
+                if cl not in primary_topics: primary_topics.append(cl)
+
+    expanded_kws = []
+    for kw in (keywords or []):
+        for part in kw.strip().split():
+            cl = re.sub(josa_pattern, '', part)
+            cl = re.sub(josa_pattern, '', cl)
+            if len(cl) >= 2 and cl not in stopwords and cl not in generic_tax_words:
+                if cl not in expanded_kws and cl not in primary_topics:
+                    expanded_kws.append(cl)
+
+    intent_must = (intent_data or {}).get("must_keywords", [])
+    for m in intent_must:
+        if m and m not in primary_topics:
+            primary_topics.insert(0, m)
+
+    # 3. 검색 쿼리 조립: 띄어쓰기 복합어 절대 배제, 오직 가장 강력한 단일 핵심 키워드 1~2개만 구성
+    candidates = []
+    for pt in primary_topics:
+        if pt and pt not in candidates and pt not in generic_biz_words:
+            candidates.append(pt)
+    for ti in tax_issues:
+        if ti and ti not in candidates:
+            candidates.append(ti)
+    for ek in expanded_kws:
+        if ek and ek not in candidates and ek not in generic_biz_words:
+            candidates.append(ek)
+    for bc in biz_contexts:
+        if bc and bc not in candidates:
+            candidates.append(bc)
+
+    search_queries = []
+    for cand in candidates:
+        single_kw = cand.strip().split()[0]
+        if single_kw and single_kw not in search_queries:
+            search_queries.append(single_kw)
+            if len(search_queries) >= 2:
+                break
+
+    if not search_queries and raw_query:
+        first_token = raw_query.strip().split()[0]
+        search_queries = [first_token[:10]]
+
+    items_dict = {}
+
+    # DRF API 실시간 호출: 최대 2개 쿼리 순회 중 1건이라도 성공적으로 가져오면 즉시 break
+    for q in search_queries[:2]:
+        try:
+            fetched = fetch_prec_from_drf(q, oc, display=100)
+            if fetched:
+                for it in fetched:
+                    key = it.get("prec_id") or it.get("case_number")
+                    if key not in items_dict:
+                        items_dict[key] = it
+                if len(items_dict) > 0:
+                    break
+        except Exception:
+            continue
+
+
+    all_items = list(items_dict.values())
+
+    # 5. 기관 구분 필터
+    filtered_by_cat = []
+    for it in all_items:
+        court = it.get("court", "")
+        if category == "전체":
+            filtered_by_cat.append(it)
+        elif category == "판례" and ("법원" in court or "대법원" in court):
+            filtered_by_cat.append(it)
+        elif category == "조세심판/행정청" and ("국세청" in court or "조세심판원" in court):
+            filtered_by_cat.append(it)
+        else:
+            filtered_by_cat.append(it)
+
+    # 6. 정밀 관련도 랭킹
+    def evaluate_case_relevance(item: Dict[str, Any]) -> Dict[str, Any]:
+        raw_score = 15.0
+        t = item.get("title", "")
+        summary_txt = item.get("summary", "")
+        matched_kws = []
+        reasons = []
+
+        # 핵심 거래 대상 목적물 매칭
+        matched_primaries = []
+        for pt in primary_topics:
+            if pt and pt in t:
+                raw_score += 45.0
+                matched_primaries.append(pt)
+            elif pt and pt in summary_txt:
+                raw_score += 25.0
+                matched_primaries.append(pt)
+        if matched_primaries:
+            matched_kws.extend(matched_primaries)
+            reasons.append(f"핵심주제({', '.join(matched_primaries[:2])}) 일치")
+
+        # 세무 쟁점 키워드 매칭
+        matched_issues = []
+        for ti in tax_issues:
+            if ti and ti in t:
+                raw_score += 25.0
+                matched_issues.append(ti)
+            elif ti and ti in summary_txt:
+                raw_score += 15.0
+                matched_issues.append(ti)
+        if matched_issues:
+            for mi in matched_issues:
+                if mi not in matched_kws:
+                    matched_kws.append(mi)
+            reasons.append(f"세무쟁점({', '.join(matched_issues[:2])}) 일치")
+
+        common_kws = ["세금계산서", "부가가치세", "법인세", "소득세", "세무", "과세", "회사", "모회사", "자회사"]
+        has_only_common = False
+        if not matched_primaries and not matched_issues:
+            only_common = True
+            for mk in matched_kws:
+                if mk not in common_kws:
+                    only_common = False
+                    break
+            if only_common and matched_kws:
+                has_only_common = True
+                raw_score = min(raw_score, 35.0)
+                reasons.append("일반 세무용어 중심 (쟁점 연관도 낮음)")
+
+        it_tax = item.get("tax_category", "조세일반")
+        target_tax = tax_type if tax_type != "전체" else (intent_data or {}).get("tax_category", "조세일반")
+        if target_tax and target_tax != "조세일반" and target_tax != "전체":
+            if it_tax == target_tax:
+                raw_score += 15.0
+                reasons.append(f"세목({target_tax}) 일치")
+            elif it_tax != "조세일반":
+                raw_score -= 20.0
+
+        final_score = int(round(min(100.0, max(0.0, raw_score))))
+        reason_summary = " · ".join(reasons[:2]) if reasons else "관련 법률/기관 검색 결과"
+
+        # 근거 유형 판정: 직접근거 후보 / 보조근거 후보 / 참고자료
+        if final_score >= 70 and matched_primaries and matched_issues:
+            basis_type = "직접근거 후보"
+        elif final_score >= 50 or (matched_primaries or matched_issues):
+            basis_type = "보조근거 후보"
+        else:
+            basis_type = "참고자료"
+
+        return {
+            "score": final_score,
+            "matched_keywords": matched_kws,
+            "match_reason": reason_summary,
+            "basis_type": basis_type,
+            "is_high_relevance": (final_score >= 50 and not has_only_common)
+        }
+
+    for it in filtered_by_cat:
+        eval_res = evaluate_case_relevance(it)
+        it["relevance_score"] = eval_res["score"]
+        it["matched_keywords"] = eval_res["matched_keywords"]
+        it["match_reason"] = eval_res["match_reason"]
+        it["basis_type"] = eval_res.get("basis_type", "참고자료")
+        it["is_high_relevance"] = eval_res["is_high_relevance"]
+
+    ranked_items = sorted(filtered_by_cat, key=lambda x: x.get("relevance_score", 0), reverse=True)
+
+    seen = set()
+    deduped = []
+    for it in ranked_items:
+        k = it.get("prec_id") or it.get("case_number")
+        if k not in seen:
+            seen.add(k)
+            deduped.append(it)
+
+    # 🚨 AI 하이브리드 재정렬 적용 (타임아웃 방지를 위해 상위 25개만 전달)
+    try:
+        from summarizer import rerank_cases_with_ai
+        top_candidates = deduped[:25]
+        if top_candidates:
+            ai_reranked = rerank_cases_with_ai(raw_query or " ".join(keywords), top_candidates, limit=limit)
+            if ai_reranked:
+                ai_selected_ids = {c.get("prec_id") or c.get("case_number") for c in ai_reranked}
+                remainders = [c for c in deduped if (c.get("prec_id") or c.get("case_number")) not in ai_selected_ids]
+                final_list = ai_reranked + remainders
+                return {"total": len(final_list), "items": final_list[:limit], "all_items": final_list, "error": None}
+    except Exception as e:
+        pass # 에러 시 기존 룰베이스 로직으로 안전하게 폴백
+
+    total_cnt = len(deduped)
+    return {"total": total_cnt, "items": deduped[:limit], "all_items": deduped, "error": None}
+
+
+def fetch_prec_detail(prec_id: str, oc_key: Optional[str] = None) -> Dict[str, Any]:
+    """
+    국가법령정보센터 DRF 상세 API(lawService.do)를 호출하여 
+    판시사항, 판결요지, 참조조문, 참조판례, 주문, 이유를 가져옵니다.
+    """
+    if not prec_id:
+        return {}
+    
+    oc = (oc_key or config.get_law_oc()).strip()
+    if not oc:
+        return {
+            "total": 0,
+            "items": [],
+            "error_type": "LAW_API_ERROR",
+            "error": "[국가법령정보센터 API 설정 오류] 법제처 Open API 사용자 인증키(OC)가 설정되지 않았습니다. .env 파일에 LAW_API_KEY를 입력해 주세요."
+        }
+
+    url = f"{DRF_SERVICE_URL}?OC={oc}&target=prec&ID={prec_id}&type=XML"
+    try:
+        resp = requests.get(url, timeout=7)
+        if resp.status_code != 200 or len(resp.content) < 150:
+            return {}
+        
+        root = ET.fromstring(resp.content)
+        
+        def clean_html(tag_name: str) -> str:
+            val = root.findtext(tag_name) or ""
+            # <br/> 및 줄바꿈 정리
+            val = re.sub(r'<br\s*/?>', '\n', val, flags=re.IGNORECASE)
+            val = re.sub(r'<[^>]+>', ' ', val)
+            val = re.sub(r'[ \t]+', ' ', val)
+            val = re.sub(r'\n\s*\n+', '\n\n', val)
+            return val.strip()
+
+        prec_point = clean_html("판시사항")
+        prec_summary = clean_html("판결요지")
+        ref_articles = clean_html("참조조문")
+        ref_precs = clean_html("참조판례")
+        order_text = clean_html("주문")
+        reason_text = clean_html("이유")
+
+        return {
+            "prec_id": prec_id,
+            "case_name": root.findtext("사건명") or "",
+            "case_number": root.findtext("사건번호") or "",
+            "date": root.findtext("선고일자") or "",
+            "court": root.findtext("법원명") or "",
+            "points": prec_point,          # 판시사항
+            "summary": prec_summary,       # 판결요지
+            "ref_articles": ref_articles,  # 참조조문
+            "ref_precs": ref_precs,        # 참조판례
+            "order": order_text,           # 주문
+            "reason": reason_text,         # 이유
+            "has_detail": bool(prec_point or prec_summary or order_text or reason_text)
+        }
+    except Exception:
+        return {}
+

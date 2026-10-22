@@ -1,0 +1,99 @@
+{
+  "scenes": [{
+    "sceneId": "d51d2605-1ba9-43ec-ab49-e8708a5a247b",
+    "name": "tax ai 1 10-06 01:25:20",
+    "aspectRatio": "SCENE_ASPECT_RATIO_LANDSCAPE",
+    "project": "10월 06 - 09:44",
+    "projectId": "f3bc7300-7777-4645-9d25-1b56647df491",
+    "createdAt": "2026-10-05 18:25:20.967048-07",
+    "isFavorited": false,
+    "clips": [{
+      "mediaTitle": "Motion graphics animation style",
+      "mediaId": "59b6b710-0348-4192-973a-96b5961def1f",
+      "position": 0,
+      "duration": "10s",
+      "endTime": "10s"
+    }, {
+      "mediaTitle": "Motion graphics corporate presen…",
+      "mediaId": "92bcf31a-0cc5-432a-9ebf-af6203a3e566",
+      "position": 1,
+      "duration": "10s",
+      "endTime": "10s"
+    }, {
+      "mediaTitle": "Motion graphics animation steps",
+      "mediaId": "0cd5c04b-8b8d-4b3f-96b8-0f345cec57a8",
+      "position": 2,
+      "duration": "10s",
+      "endTime": "10s"
+    }]
+  }, {
+    "sceneId": "d8d9c0bd-77e3-4f97-a06d-a1d9e341d3c9",
+    "name": "Untitled Scene 10-06 04:09:39",
+    "aspectRatio": "SCENE_ASPECT_RATIO_LANDSCAPE",
+    "project": "10월 06 - 09:44",
+    "projectId": "f3bc7300-7777-4645-9d25-1b56647df491",
+    "createdAt": "2026-10-05 21:09:39.356748-07",
+    "isFavorited": false,
+    "clips": [{
+      "mediaTitle": "Motion graphics animation style",
+      "mediaId": "1d32274d-9802-46c3-9d39-08c83e357ddb",
+      "position": 0,
+      "duration": "10s"
+    }, {
+      "mediaTitle": "Motion graphics corporate presen…",
+      "mediaId": "a422c229-8f84-400f-90a1-1d694871d0b9",
+      "position": 1,
+      "duration": "10s"
+    }, {
+      "mediaTitle": "Motion graphics animation steps",
+      "mediaId": "fba49a93-2f55-453e-8d9f-aa8127dd442b",
+      "position": 2,
+      "duration": "10s"
+    }, {
+      "mediaTitle": "Motion graphics animation contra…",
+      "mediaId": "68acf6e1-1fbe-4e08-9e59-17fe8d24821a",
+      "position": 3,
+      "duration": "10s"
+    }, {
+      "mediaTitle": "Tax assistant animation interfac…",
+      "mediaId": "5dc83a96-c5de-45b8-9137-2d748b4cbe9b",
+      "position": 4,
+      "duration": "9.500s"
+    }, {
+      "mediaTitle": "Animating search result cards",
+      "mediaId": "f6c7ca20-73bb-40ba-b851-9571c37b403d",
+      "position": 5,
+      "duration": "10s"
+    }, {
+      "mediaTitle": "Animating database search verifi…",
+      "mediaId": "2a6b961c-c27b-4c50-80b4-26f4c75bf1dd",
+      "position": 6,
+      "duration": "10s"
+    }, {
+      "mediaTitle": "Animating auto-save review histo…",
+      "mediaId": "86ab20df-6b41-4851-aafa-72ea54392b48",
+      "position": 7,
+      "duration": "10s"
+    }, {
+      "mediaTitle": "Animating human centric knowledg…",
+      "mediaId": "9770b9b6-f593-491c-ac9b-30cfb0e0fff8",
+      "position": 8,
+      "duration": "10s"
+    }, {
+      "mediaTitle": "Motion graphics animation UI design",
+      "mediaId": "c64588f4-42b1-48cd-85c3-1cc989163256",
+      "position": 9,
+      "duration": "10s"
+    }, {
+      "mediaTitle": "Animating motion graphics corpor…",
+      "mediaId": "cb9e07f0-6c8e-4701-a36e-570ed08f3e2b",
+      "position": 10,
+      "duration": "10s"
+    }, {
+      "mediaTitle": "Typewriter animation for tax ass…",
+      "mediaId": "4f0b5140-664a-498e-9f31-bc16901287b8",
+      "position": 11,
+      "duration": "10s"
+    }]
+  }]
+}

@@ -1,0 +1,21 @@
+{
+  "mediaEntries": [{
+    "mediaId": "a6ffc12c-9f0c-4f54-b784-66717c699afa",
+    "mediaTitle": "image.png",
+    "mediaType": "IMAGE",
+    "source": "generated",
+    "project": "10월 06 - 09:44",
+    "projectId": "f3bc7300-7777-4645-9d25-1b56647df491",
+    "createdAt": "2026-10-05 18:15:03.411889-07",
+    "modelName": "Nano Banana 2 Lite",
+    "dimensions": {
+      "width": 1376,
+      "height": 768
+    },
+    "generationInputs": {
+      "prompt": "Professional presentation slide with a dark green background. Top text in white Korean: \u0027데이터는 많지만, 리뷰 과정은 간단합니다.\u0027 Below are two light grey rectangular boxes. The left box contains the Korean text \u0027외부 자료\u0027. The right box contains the Korean text \u0027내부 경험\u0027. Between and within the layout, English text reads \u0027FROM SEARCH TO ORGANIZATIONAL KNOWLEDGE\u0027. Maintain the exact layout, color scheme, and graphic style of the reference image but fix all the typos.",
+      "aspectRatio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+      "parentMediaId": "6d9401a6-7d01-4217-9b05-8bcf10c590a9"
+    }
+  }]
+}

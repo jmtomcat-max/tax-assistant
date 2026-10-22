@@ -1,0 +1,7 @@
+[0:v]
+delogo=x=210:y=392:w=880:h=82:show=0:enable='between(t,0.95,3.35)',
+delogo=x=210:y=474:w=880:h=52:show=0:enable='between(t,0.95,3.35)',
+drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='•':fontcolor=0x28a98f:fontsize=27:x=222:y=402:enable='between(t,0.95,3.35)',
+drawtext=fontfile='C\:/Windows/Fonts/malgun.ttf':text='질문의 핵심 사실관계와 쟁점을 자동으로 구조화합니다.':fontcolor=0x30413d:fontsize=24:x=252:y=404:enable='between(t,0.95,3.35)',
+drawtext=fontfile='C\:/Windows/Fonts/malgunbd.ttf':text='•':fontcolor=0x28a98f:fontsize=27:x=222:y=482:enable='between(t,0.95,3.35)',
+drawtext=fontfile='C\:/Windows/Fonts/malgun.ttf':text='내부 지식과 공식 세무·판례 자료를 함께 검색합니다.':fontcolor=0x30413d:fontsize=24:x=252:y=484:enable='between(t,0.95,3.35)'[v]

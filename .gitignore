@@ -1,0 +1,43 @@
+# 환경 설정 및 시크릿 (절대 커밋 금지)
+.env
+*.env
+.env.local
+.streamlit/secrets.toml
+
+# SQLite 트랜잭션 및 런타임 저널 파일
+*.db-journal
+*.db-wal
+*.db-shm
+
+# 감사 로그 및 사용자 세션 임시 파일
+audit_trail.jsonl
+saved_cases.json.tmp
+
+# 파이썬 캐시 및 가상환경
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# 바이너리, 터널 및 로그
+cloudflared.exe
+*.log
+streamlit.stderr.log
+streamlit.stdout.log
+
+# 대용량 미디어 및 프레젠테이션 빌드 산출물 (Git 용량 초과 방지)
+presentation_launcher/media/*.mp4
+presentation_launcher/media/*.avi
+*.mp4
+*.m4v
+.ppt_build/
+.codex-finalizer/
+
+# 로컬 스크래치 및 테스트 산출물
+scratch/
+test_*.txt
+out_*.txt
+sim_results.txt
+sample_report.txt

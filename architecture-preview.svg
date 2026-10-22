@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1000" viewBox="0 0 1500 1000">
+  <defs>
+    <style>
+      text { font-family: "Malgun Gothic", "Noto Sans KR", sans-serif; fill: #172033; }
+      .title { font-size: 28px; font-weight: 700; fill: #003876; }
+      .zone-title { font-size: 17px; font-weight: 700; }
+      .node-title { font-size: 14px; font-weight: 700; }
+      .node-sub { font-size: 12px; fill: #475569; }
+      .edge { fill: none; stroke-width: 2; marker-end: url(#arrow); }
+      .flow { fill: #fff; stroke: #94a3b8; stroke-width: 1.5; rx: 8; }
+      .flow-text { font-size: 12px; font-weight: 600; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <rect width="1500" height="1000" fill="#ffffff"/>
+  <text x="750" y="48" text-anchor="middle" class="title">CJ프레시웨이 세무 리서치 &amp; AI 검토 프로그램 구조</text>
+
+  <g>
+    <rect x="40" y="90" width="290" height="290" rx="12" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+    <text x="60" y="120" class="zone-title">사용자 / 실행 환경</text>
+    <rect x="70" y="150" width="230" height="70" rx="8" fill="#fff" stroke="#64748b"/>
+    <text x="185" y="178" text-anchor="middle" class="node-title">세무/회계 담당자</text>
+    <text x="185" y="200" text-anchor="middle" class="node-sub">브라우저에서 질의·문서 입력</text>
+    <rect x="70" y="265" width="230" height="70" rx="8" fill="#fff" stroke="#64748b"/>
+    <text x="185" y="293" text-anchor="middle" class="node-title">실행 스크립트</text>
+    <text x="185" y="315" text-anchor="middle" class="node-sub">run.bat / run_local / run_share</text>
+  </g>
+
+  <g>
+    <rect x="370" y="90" width="470" height="670" rx="12" fill="#eef6ff" stroke="#3b82f6" stroke-width="2"/>
+    <text x="390" y="120" class="zone-title">Streamlit 애플리케이션</text>
+    <rect x="495" y="145" width="220" height="75" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+    <text x="605" y="174" text-anchor="middle" class="node-title">app.py</text>
+    <text x="605" y="197" text-anchor="middle" class="node-sub">세션 초기화 · 화면 라우팅</text>
+    <rect x="400" y="270" width="190" height="70" rx="8" fill="#fff" stroke="#2563eb"/>
+    <text x="495" y="298" text-anchor="middle" class="node-title">components/sidebar.py</text>
+    <text x="495" y="320" text-anchor="middle" class="node-sub">메뉴 · API 상태 표시</text>
+    <rect x="620" y="270" width="190" height="70" rx="8" fill="#fff" stroke="#2563eb"/>
+    <text x="715" y="298" text-anchor="middle" class="node-title">공통 UI 구성요소</text>
+    <text x="715" y="320" text-anchor="middle" class="node-sub">카드 · 리포트 · CSS</text>
+    <rect x="470" y="390" width="270" height="78" rx="8" fill="#fff" stroke="#2563eb"/>
+    <text x="605" y="420" text-anchor="middle" class="node-title">views/*</text>
+    <text x="605" y="443" text-anchor="middle" class="node-sub">검색 · 승인센터 · 승인된 자료 · 설정</text>
+    <rect x="470" y="520" width="270" height="82" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+    <text x="605" y="550" text-anchor="middle" class="node-title">views/view_search.py</text>
+    <text x="605" y="574" text-anchor="middle" class="node-sub">검색 실행 · AI 검토 · 결과 표시</text>
+    <rect x="470" y="650" width="270" height="70" rx="8" fill="#fff" stroke="#2563eb"/>
+    <text x="605" y="679" text-anchor="middle" class="node-title">기타 화면</text>
+    <text x="605" y="701" text-anchor="middle" class="node-sub">기록 · 저장 자료 · 매뉴얼 · 가산세 · 설정</text>
+  </g>
+
+  <g>
+    <rect x="880" y="90" width="310" height="670" rx="12" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+    <text x="900" y="120" class="zone-title">세무 검색 · AI 분석 도메인</text>
+    <rect x="915" y="155" width="240" height="80" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+    <text x="1035" y="185" text-anchor="middle" class="node-title">summarizer.py</text>
+    <text x="1035" y="208" text-anchor="middle" class="node-sub">사실관계 구조화 · 리포트 생성</text>
+    <rect x="915" y="305" width="240" height="80" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+    <text x="1035" y="335" text-anchor="middle" class="node-title">law_api.py</text>
+    <text x="1035" y="358" text-anchor="middle" class="node-sub">공식 근거 검색 · 본문 조회 · 랭킹</text>
+    <rect x="915" y="455" width="240" height="75" rx="8" fill="#fff" stroke="#16a34a"/>
+    <text x="1035" y="484" text-anchor="middle" class="node-title">components/case_logic.py</text>
+    <text x="1035" y="507" text-anchor="middle" class="node-sub">결론 분류 · 근거 적격성 검증</text>
+    <rect x="915" y="605" width="240" height="75" rx="8" fill="#fff" stroke="#16a34a"/>
+    <text x="1035" y="634" text-anchor="middle" class="node-title">세율/가산세/계정과목 모듈</text>
+    <text x="1035" y="657" text-anchor="middle" class="node-sub">계산 및 기준 정보 제공</text>
+  </g>
+
+  <g>
+    <rect x="40" y="415" width="290" height="345" rx="12" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+    <text x="60" y="445" class="zone-title">로컬 데이터 / 설정</text>
+    <rect x="70" y="480" width="230" height="70" rx="8" fill="#ffedd5" stroke="#f97316"/>
+    <text x="185" y="508" text-anchor="middle" class="node-title">config.py / .env</text>
+    <text x="185" y="530" text-anchor="middle" class="node-sub">API 키 · 모델 · 기준세법일</text>
+    <rect x="70" y="590" width="230" height="75" rx="8" fill="#ffedd5" stroke="#f97316"/>
+    <text x="185" y="619" text-anchor="middle" class="node-title">storage.py</text>
+    <text x="185" y="642" text-anchor="middle" class="node-sub">저장 · 마스킹 · 중복 검사</text>
+    <rect x="70" y="695" width="230" height="48" rx="8" fill="#fff" stroke="#f97316"/>
+    <text x="185" y="724" text-anchor="middle" class="node-sub">JSON · DB · 감사 이력 · 세율 파일</text>
+  </g>
+
+  <g>
+    <rect x="1230" y="90" width="230" height="670" rx="12" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+    <text x="1250" y="120" class="zone-title">외부 서비스</text>
+    <rect x="1260" y="175" width="170" height="75" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="1345" y="204" text-anchor="middle" class="node-title">law.go.kr DRF API</text>
+    <text x="1345" y="227" text-anchor="middle" class="node-sub">판례 · 심판 · 예규</text>
+    <rect x="1260" y="345" width="170" height="88" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="1345" y="374" text-anchor="middle" class="node-title">AI 서비스</text>
+    <text x="1345" y="397" text-anchor="middle" class="node-sub">Azure/OpenAI</text>
+    <text x="1345" y="416" text-anchor="middle" class="node-sub">또는 Gemini 폴백</text>
+    <rect x="1260" y="540" width="170" height="75" rx="8" fill="#fff" stroke="#dc2626"/>
+    <text x="1345" y="569" text-anchor="middle" class="node-title">Cloudflare Tunnel</text>
+    <text x="1345" y="592" text-anchor="middle" class="node-sub">외부 공유 모드</text>
+  </g>
+
+  <g class="edge">
+    <path d="M300 185 H495" stroke="#334155"/><path d="M300 300 H390 V205 H495" stroke="#334155"/>
+    <path d="M605 220 V245 H495 V270" stroke="#2563eb"/><path d="M605 220 V245 H715 V270" stroke="#2563eb"/>
+    <path d="M605 220 V390" stroke="#2563eb"/><path d="M605 468 V520" stroke="#2563eb"/><path d="M605 602 V650" stroke="#2563eb"/>
+    <path d="M740 550 H860 V195 H915" stroke="#16a34a"/><path d="M740 570 H850 V345 H915" stroke="#16a34a"/>
+    <path d="M1035 385 V455" stroke="#16a34a"/><path d="M1155 345 H1260" stroke="#dc2626"/><path d="M1155 195 H1260" stroke="#dc2626"/>
+    <path d="M740 685 H915" stroke="#16a34a"/><path d="M300 515 H370 V183 H495" stroke="#f97316"/>
+    <path d="M470 560 H350 V628 H300" stroke="#f97316"/><path d="M185 665 V695" stroke="#f97316"/>
+    <path d="M300 300 H350 V575 H1260" stroke="#dc2626"/>
+  </g>
+
+  <text x="40" y="810" class="zone-title">주요 처리 흐름</text>
+  <g>
+    <rect class="flow" x="40" y="845" width="245" height="70"/><text x="162" y="873" text-anchor="middle" class="flow-text">1. 세무 사실관계·문서 입력</text><text x="162" y="896" text-anchor="middle" class="node-sub">사용자 질의 시작</text>
+    <rect class="flow" x="330" y="845" width="245" height="70"/><text x="452" y="873" text-anchor="middle" class="flow-text">2. 세목·거래유형·쟁점 구조화</text><text x="452" y="896" text-anchor="middle" class="node-sub">AI 분석</text>
+    <rect class="flow" x="620" y="845" width="245" height="70"/><text x="742" y="873" text-anchor="middle" class="flow-text">3. 공식 판례·예규 검색</text><text x="742" y="896" text-anchor="middle" class="node-sub">상세 본문 보강</text>
+    <rect class="flow" x="910" y="845" width="245" height="70"/><text x="1032" y="873" text-anchor="middle" class="flow-text">4. 근거 품질·리스크 분류</text><text x="1032" y="896" text-anchor="middle" class="node-sub">룰 기반 + AI 재정렬</text>
+    <rect class="flow" x="1200" y="845" width="260" height="70"/><text x="1330" y="873" text-anchor="middle" class="flow-text">5. 리포트·카드·엑셀·저장</text><text x="1330" y="896" text-anchor="middle" class="node-sub">Streamlit 결과 제공</text>
+    <path class="edge" d="M285 880 H330" stroke="#64748b"/><path class="edge" d="M575 880 H620" stroke="#64748b"/><path class="edge" d="M865 880 H910" stroke="#64748b"/><path class="edge" d="M1155 880 H1200" stroke="#64748b"/>
+  </g>
+  <text x="40" y="968" class="node-sub">편집 원본: architecture.drawio · 이미지 미리보기: architecture-preview.svg</text>
+</svg>

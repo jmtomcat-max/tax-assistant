@@ -1,0 +1,20 @@
+{
+  "mediaEntries": [{
+    "mediaId": "f71f23bb-bd66-466e-b12e-9d375df1aab1",
+    "mediaTitle": "Loom%20_%20Free%20Screen%20%26%20Video%20Recording%20Software%20_%20Loom%20-%206%20October%202026",
+    "mediaType": "VIDEO",
+    "source": "uploaded",
+    "project": "10월 06 - 08:39",
+    "projectId": "7727867f-129e-4d61-8f10-e622e6a13c49",
+    "collectionId": "b3531670-b095-4921-a028-4f15de385661",
+    "createdAt": "2026-10-05 17:25:08.753295-07",
+    "dimensions": {
+      "width": 1280,
+      "height": 676,
+      "duration": "30.020s"
+    },
+    "videoOffset": {
+      "endOffset": "30s"
+    }
+  }]
+}

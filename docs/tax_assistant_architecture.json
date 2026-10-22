@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "TAX ASSISTANT 시스템 구조",
+    "quality_profile": "showcase",
+    "viewBox": [1390, 800],
+    "views": [
+      {
+        "id": "analysis_path",
+        "label": "세무 검토 흐름",
+        "focus": ["user", "streamlit", "pipeline", "knowledge_search", "law_api", "ai_analysis", "review_db"],
+        "note": "질문 입력부터 내부 지식·공식 근거 검색, AI 분석, 검토 저장까지의 주 흐름입니다."
+      },
+      {
+        "id": "knowledge_cycle",
+        "label": "승인 지식 순환",
+        "focus": ["streamlit", "knowledge_search", "review_db", "knowledge_db"],
+        "note": "검토 결과가 승인 지식으로 축적되고 다음 분석에서 다시 검색되는 순환 구조입니다."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "세무 실무자",
+      "sublabel": "질문·문서 입력 / 결과 검토",
+      "pos": [10, 300],
+      "size": [150, 76]
+    },
+    {
+      "id": "streamlit",
+      "type": "frontend",
+      "label": "Streamlit 업무 화면",
+      "sublabel": "검색·검토·승인 지식·설정",
+      "pos": [190, 300],
+      "size": [170, 76]
+    },
+    {
+      "id": "pipeline",
+      "type": "backend",
+      "label": "분석 오케스트레이션",
+      "sublabel": "질문 분석·검색·브리핑 조정",
+      "pos": [390, 300],
+      "size": [180, 76]
+    },
+    {
+      "id": "knowledge_search",
+      "type": "backend",
+      "label": "내부 지식 검색",
+      "sublabel": "승인 지식 우선 탐색",
+      "pos": [600, 300],
+      "size": [170, 76]
+    },
+    {
+      "id": "law_api",
+      "type": "backend",
+      "label": "공식 법령 검색",
+      "sublabel": "판례·결정례·예규 수집",
+      "pos": [800, 300],
+      "size": [170, 76]
+    },
+    {
+      "id": "ai_analysis",
+      "type": "backend",
+      "label": "AI 세무 분석",
+      "sublabel": "쟁점 분석·브리핑·인용 검증",
+      "pos": [1000, 300],
+      "size": [185, 76]
+    },
+    {
+      "id": "official_sources",
+      "type": "external",
+      "label": "국가법령 공식 데이터",
+      "sublabel": "국가법령정보센터 DRF API",
+      "pos": [790, 500],
+      "size": [190, 76]
+    },
+    {
+      "id": "ai_provider",
+      "type": "external",
+      "label": "Enterprise AI API",
+      "sublabel": "분석·요약 모델",
+      "pos": [1000, 500],
+      "size": [185, 76]
+    },
+    {
+      "id": "review_db",
+      "type": "database",
+      "label": "검토 이력 저장소",
+      "sublabel": "SQLite / JSON 백엔드",
+      "pos": [1210, 300],
+      "size": [150, 76]
+    },
+    {
+      "id": "knowledge_db",
+      "type": "database",
+      "label": "승인 지식 저장소",
+      "sublabel": "재사용 가능한 조직 지식",
+      "pos": [1190, 100],
+      "size": [185, 76]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "TAX ASSISTANT 로컬 애플리케이션",
+      "wraps": ["streamlit", "pipeline", "knowledge_search", "law_api", "ai_analysis", "review_db", "knowledge_db"],
+      "pad": 10
+    }
+  ],
+  "connections": [
+    {"id": "user_ui", "from": "user", "to": "streamlit", "label": "질문·문서", "variant": "emphasis", "labelDy": -30},
+    {"id": "ui_pipeline", "from": "streamlit", "to": "pipeline", "label": "분석 요청", "variant": "emphasis", "labelDy": -30},
+    {"id": "pipeline_knowledge", "from": "pipeline", "to": "knowledge_search", "label": "내부 지식 우선 조회", "labelDy": -30},
+    {"id": "knowledge_law", "from": "knowledge_search", "to": "law_api", "label": "지식 컨텍스트", "labelDy": -30},
+    {"id": "law_ai", "from": "law_api", "to": "ai_analysis", "label": "공식 근거와 사실관계", "variant": "emphasis", "labelDy": -30},
+    {"id": "law_official", "from": "law_api", "to": "official_sources", "label": "DRF API 요청·응답", "variant": "security", "fromSide": "bottom", "toSide": "top", "labelDy": 24},
+    {"id": "ai_provider_call", "from": "ai_analysis", "to": "ai_provider", "label": "분석·요약 호출", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24},
+    {"id": "ai_review", "from": "ai_analysis", "to": "review_db", "label": "브리핑·근거 저장", "labelDy": -30},
+    {"id": "review_knowledge", "from": "review_db", "to": "knowledge_db", "label": "사람 승인 후 지식 승격", "fromSide": "top", "toSide": "bottom"}
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "근거 중심 분석",
+      "items": ["내부 승인 지식을 먼저 찾고 공식 법령 자료로 보강", "AI가 인용한 사건번호를 검색 결과 풀과 대조"]
+    },
+    {
+      "dot": "emerald",
+      "title": "사람 중심 지식 순환",
+      "items": ["분석 결과를 검토 이력으로 남기고 승인 상태를 관리", "승인된 결과만 조직 지식으로 재사용"]
+    },
+    {
+      "dot": "amber",
+      "title": "외부 연결 경계",
+      "items": ["공식 법령 API와 Enterprise AI API만 외부 호출", "업무 화면과 검토 저장소는 로컬 애플리케이션 경계 안에 위치"]
+    }
+  ]
+}
